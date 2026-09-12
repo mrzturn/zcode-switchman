@@ -59,7 +59,7 @@
 
 1. **装插件，重开会话。** 启动横幅的 `[Shells]` 行列出六壳，它们已被装配进 `~/.zcode/agents/`（Settings → Subagents 可见）。若当前会话早于装配，下一个会话就能看到。
 2. **（可选）钉模型。** 默认 `model: inherit` 已经够用；想让某档跑固定模型，跑 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` 行。壳文件在会话启动时快照，改完要重开会话才生效。
-3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发，你也可以直接说「这活派给 hard」。每次委派自带 ROUTE_META，门禁自动把关。
+3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发（每轮 `[ROUTE]` token 账铁律兜底），你也可以直接说「这活派给 hard」。每次委派自带 ROUTE_META，门禁自动把关。
 4. **心里没底就体检。** `/switchman-doctor`，七项自检。
 5. **会话跑长了就交接。** `/switchman-handover` 把当前会话总结成 `.switchman/` 下的交接文档并留下指针，你按一次 `/compact`，SessionStart hook 把文档全文注入新上下文，从 Next steps 无缝接着干。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
 
@@ -74,8 +74,9 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 **辅助**
 
-- **会话横幅**——每次启动注入 `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace]`；装配有变动才出现 `[Sync]`，有待交接时多一行一次性的 `[Handover]`。
+- **会话横幅**——每次启动注入 `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace] / [Rule]`；装配有变动才出现 `[Sync]`，有待交接时多一行一次性的 `[Handover]`。
 - **项目语言偏好**——每个项目记住自己的对话/注释/文档语言。没配置过的项目，在改动任何东西之前模型必须先回答三道 `switchman-lang` 问题，期间改文件和派发都被门禁拦着；答案落盘 `<project>/.switchman/settings.json`，之后 `[LANG]` 铁律每轮重注入。你临时提的语言要求只对当轮生效。
+- **派发优先纪律（token 账）**——每轮注入 `[ROUTE]` 铁律：动手前先用一句话权衡自己做还是派出去（自己做花主上下文且持续膨胀、压缩丢细节；派发花一个全新壳上下文，主上下文只付委派单和结论），并把当前上下文长度纳入考虑——越长越倾向派发；琐事（单行修改、看一两个已知文件、`.switchman/` 记账、协调编队）留给自己。开场横幅同步加 `[Rule]` 行。`.switchman/settings.json` 顶层 `"dispatch": "off"` 可关。
 - **项目工作区 `.switchman/`**——壳的落盘输出、scratch 分析、交接文档统一放项目根的 `.switchman/`，不散落源码目录。建议加进项目的 `.gitignore`。
 - **四条命令**——`/switchman-setup` 钉模型、`/switchman-doctor` 体检、`/switchman-handover` 交接、`/switchman-lang` 重设语言偏好。
 - **四个技能**——`switchman-routing`（派发协议），以及自源项目原样平移的三个同伴：`git-commit-message`（只产出提交文案，绝不执行 git）、`requirement-docs`（需求/PRD/设计文档规范）、`db-query`（内置脚本只读核验 MySQL/Redis，拒绝一切写操作）。
@@ -90,7 +91,9 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 ```
 templates/agents/   六壳正本，会话启动自动装配到 ~/.zcode/agents
-src/lib/            共享核心：shells / meta / breaker / provision / handover / lang / state
+src/lib/            共享核心：shells / meta / breaker / provision / handover / lang / state /
+                    route（dispatch 模式解析，settings.json 顶层开关可关，fail-open；
+                    [ROUTE]/[Rule] 两行铁律文案唯一渲染出处：renderRouteLine / renderRuleLine）
 hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse · PostToolUseFailure
 commands/           setup · doctor · handover · lang
 skills/             switchman-routing + git-commit-message / requirement-docs / db-query

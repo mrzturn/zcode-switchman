@@ -59,7 +59,7 @@ Only report done when all three steps pass; summarize what you changed and attac
 
 1. **Install, then open a new session.** The banner's `[Shells]` line lists all six shells, provisioned into `~/.zcode/agents/` (visible under Settings → Subagents). If your current session predates provisioning, the next one will show them.
 2. **(Optional) Pin models.** The default `model: inherit` is enough to start; to run a lane on a fixed model, use `/switchman-setup` for a conversational rebind, or edit the `model:` line in `~/.zcode/agents/switchman-<lane>.md` by hand. Shell files are snapshotted at session start, so restart the session for changes to take effect.
-3. **Just work.** No new commands to memorize: the main model picks lanes per the `switchman-routing` skill, or you can simply say "dispatch this to hard". Every delegation carries its ROUTE_META line; the gate checks it automatically.
+3. **Just work.** No new commands to memorize: the main model picks lanes per the `switchman-routing` skill (a per-turn `[ROUTE]` token-economy iron rule is the backstop), or you can simply say "dispatch this to hard". Every delegation carries its ROUTE_META line; the gate checks it automatically.
 4. **When in doubt, run the doctor.** `/switchman-doctor`, a seven-point self-check.
 5. **When the session runs long, hand over.** `/switchman-handover` summarizes the session into a handover doc under `.switchman/` and leaves a pointer; press `/compact` once and the SessionStart hook injects the doc's full text into the fresh context — work resumes from the doc's Next steps with no further action. (Docs over 16 KB degrade to a pointer line; session forking for backup stays your call via the client's session menu.)
 
@@ -74,8 +74,9 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 
 **Auxiliary**
 
-- **Session banner** — `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace]` injected at every session start; `[Sync]` appears only when provisioning changed something, and a one-shot `[Handover]` line is added when a handover is pending.
+- **Session banner** — `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace] / [Rule]` injected at every session start; `[Sync]` appears only when provisioning changed something, and a one-shot `[Handover]` line is added when a handover is pending.
 - **Project language preference** — each project remembers its own conversation/comments/docs language. On an unconfigured project, the model must answer three `switchman-lang` questions before mutating anything, while file-mutating tools and shell dispatches are gate-denied; answers persist to `<project>/.switchman/settings.json`, and the `[LANG]` iron-rule line is re-injected every turn. Ad-hoc language requests stay single-turn.
+- **Dispatch-first rule (token economy)** — a `[ROUTE]` iron rule is injected every turn: before each substantive action, state in one sentence whether to do it yourself or dispatch (hands-on spends and keeps growing the main context, and compaction loses detail; a dispatch spends a fresh shell context, so the main context only pays the delegation prompt and the result), and weigh the current context length — the longer it is, the stronger the case for dispatching. Trivia (one-line fixes, reading 1-2 known files, `.switchman/` bookkeeping, fleet coordination) stays hands-on. The session banner adds a matching `[Rule]` line. A top-level `"dispatch": "off"` in `.switchman/settings.json` turns both off.
 - **Project workspace `.switchman/`** — shell outputs, scratch analysis, and handover docs all live under the project root's `.switchman/`, never scattered in source directories. Add it to your project's `.gitignore`.
 - **Four commands** — `/switchman-setup` (pin models), `/switchman-doctor` (self-check), `/switchman-handover` (handover), `/switchman-lang` (reconfigure language preference).
 - **Four skills** — `switchman-routing` (dispatch protocol), plus three companions ported from the source project: `git-commit-message` (delivers commit text, never runs git), `requirement-docs` (requirements/PRD/design doc spec), `db-query` (read-only MySQL/Redis verification via built-in scripts; refuses all writes).
@@ -90,7 +91,10 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 
 ```
 templates/agents/   the six shells, auto-provisioned to ~/.zcode/agents at session start
-src/lib/            shared core: shells / meta / breaker / provision / handover / lang / state
+src/lib/            shared core: shells / meta / breaker / provision / handover / lang / state /
+                    route (dispatch-mode parsing with a top-level settings.json off-switch,
+                    fail-open; sole renderer of the [ROUTE]/[Rule] iron-rule lines:
+                    renderRouteLine / renderRuleLine)
 hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse · PostToolUseFailure
 commands/           setup · doctor · handover · lang
 skills/             switchman-routing + git-commit-message / requirement-docs / db-query

@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 /**
- * UserPromptSubmit hook: per-turn [LANG] iron-rule line (configured projects)
- * or the first-run ask directive (unconfigured, not waived). The config is
+ * UserPromptSubmit hook: per-turn context lines. The [LANG] iron-rule line
+ * (configured projects) or the first-run ask directive (unconfigured, not
+ * waived), plus the [ROUTE] token-economy iron-rule line unless the project
+ * opted out via settings.json `"dispatch": "off"` (src/lib/route.mjs).
+ * Exception: while the first-run ask is active the [ROUTE] line is held
+ * back — the language gate is hard-denying Bash/Write/Edit and dispatches
+ * then, so the rule would only induce a dispatch doomed to be denied; it
+ * returns once the config persists or the session waives. Both configs are
  * re-read from disk on every turn, so stickiness is mechanism-enforced and a
  * user's ad-hoc language request reverts automatically next turn. Fail-open —
  * any error prints nothing and the session continues.
  */
 import fs from "node:fs";
 import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
+import { DISPATCH_OFF, loadDispatchMode, renderRouteLine } from "../src/lib/route.mjs";
 
 function readStdinPayload() {
   try {
@@ -24,18 +31,25 @@ try {
   const sessionId = payload.session_id || process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
   const projectDir = payload.cwd || process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
-  let text = null;
+  const lines = [];
+  let lang = null;
+  let asking = false; // first-run lang ask active → hold [ROUTE] back (see header JSDoc)
   if (projectDir) {
     const loaded = loadLangConfig(projectDir);
-    if (loaded) text = renderLangLine(loaded.cfg, loaded.source);
-    else if (!langWaivedFor(projectDir, sessionId)) text = renderAskDirective();
+    if (loaded) lang = renderLangLine(loaded.cfg, loaded.source);
+    else if (!langWaivedFor(projectDir, sessionId)) {
+      lang = renderAskDirective();
+      asking = true;
+    }
   }
-  if (text) {
+  if (lang) lines.push(lang);
+  if (!asking && loadDispatchMode(projectDir) !== DISPATCH_OFF) lines.push(renderRouteLine());
+  if (lines.length) {
     process.stdout.write(
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
-          additionalContext: text,
+          additionalContext: lines.join("\n"),
         },
       }) + "\n",
     );

@@ -288,10 +288,12 @@ test("hook smoke: unconfigured project — session waiver file opens the gate fo
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("hook smoke: user-prompt-submit injects the ask directive, the [LANG] line, or nothing", () => {
+test("hook smoke: user-prompt-submit injects the ask directive, the [LANG] line, or for a waived session only [ROUTE]", () => {
   const unconfigured = sandbox(false);
-  const ask = runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: unconfigured, session_id: "s1" });
-  assert.match(JSON.parse(ask.stdout).hookSpecificOutput.additionalContext, /switchman-lang 1\/3/);
+  const askCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: unconfigured, session_id: "s1" }).stdout)
+    .hookSpecificOutput.additionalContext;
+  assert.match(askCtx, /switchman-lang 1\/3/);
+  assert.doesNotMatch(askCtx, /\[ROUTE\]/, "the first-run ask holds the [ROUTE] line back");
 
   const configured = sandbox(true);
   const line = runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: configured, session_id: "s1" });
@@ -302,7 +304,11 @@ test("hook smoke: user-prompt-submit injects the ask directive, the [LANG] line,
   const waived = sandbox(false);
   fs.mkdirSync(path.join(waived, ".switchman"), { recursive: true });
   fs.writeFileSync(path.join(waived, ".switchman", LANG_WAIVED_FILE), JSON.stringify({ v: 1, sessionId: "s9" }));
-  assert.equal(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: waived, session_id: "s9" }).stdout, "");
+  assert.doesNotMatch(
+    runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: waived, session_id: "s9" }).stdout,
+    /switchman-lang|\[LANG\]/,
+    "waiver is session-scoped: no lang content for this session (the independent [ROUTE] line may still fire)",
+  );
   assert.match(
     JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: waived, session_id: "s1" }).stdout)
       .hookSpecificOutput.additionalContext,

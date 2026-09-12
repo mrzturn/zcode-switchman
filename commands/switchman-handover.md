@@ -53,7 +53,7 @@ Steps:
    - Next steps (an actionable checklist — this is where work resumes)
    - Risks & open questions
    - Fleet snapshot (the banner's `[Session] / [Shells] / [Binding] /
-     [Breaker] / [Workspace]` lines, verbatim)
+     [Breaker] / [Workspace] / [Rule]` lines, verbatim)
    - How to continue (read this doc first; work the Next steps; the
      `switchman-routing` skill governs dispatches)
 4. **Write the pointer** `.switchman/handover.json` in the project root:

@@ -13,6 +13,10 @@
  *               session (created/updated shells; user model lines preserved)
  *   [Breaker]   currently down shells, if any
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
+ *   [Rule]      token-economy iron rule: before each substantive action
+ *               state self-vs-dispatch in one sentence and weigh context
+ *               length. Opt-out via `"dispatch": "off"` in
+ *               .switchman/settings.json (src/lib/route.mjs)
  *   [LANG]      project language preference iron rule, or the first-run ask
  *               directive while unconfigured (src/lib/lang.mjs)
  *   [Handover]  pending handover, injected once, then the pointer is cleared
@@ -30,6 +34,7 @@ import { SHELLS } from "../src/lib/shells.mjs";
 import { readPointer, clearPointer, readDocContent } from "../src/lib/handover.mjs";
 import { provisionShells } from "../src/lib/provision.mjs";
 import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
+import { DISPATCH_OFF, loadDispatchMode, renderRuleLine } from "../src/lib/route.mjs";
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -134,6 +139,19 @@ function handoverLine(projectDir) {
   return `[Handover] pending: read ${ptr.path} and continue from its next steps`;
 }
 
+/** [Rule] token-economy line for the banner (text rendered by route.mjs);
+ *  null when opted out or when the banner has no project context
+ *  (fail-open, never throws) */
+function ruleLine(projectDir) {
+  if (!projectDir) return null;
+  try {
+    if (loadDispatchMode(projectDir) !== DISPATCH_OFF) return renderRuleLine();
+  } catch (err) {
+    process.stderr.write(`[zcode-switchman] route fail-open: ${err}\n`);
+  }
+  return null;
+}
+
 /** [LANG] iron-rule line when configured; first-run ask directive while not (fail-open, never throws) */
 function langLine(projectDir, sessionId) {
   if (!projectDir) return null;
@@ -171,6 +189,8 @@ try {
   lines.push(shellLine(), bindingLine());
   if (sync) lines.push(sync);
   lines.push(breakerLine(routing), workspaceLine());
+  const rule = ruleLine(projectDir);
+  if (rule) lines.push(rule);
   const lang = langLine(projectDir, sessionId);
   if (lang) lines.push(lang);
   const handover = handoverLine(projectDir);

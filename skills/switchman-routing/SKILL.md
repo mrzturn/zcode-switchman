@@ -1,9 +1,38 @@
 ---
 name: switchman-routing
-description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchman. Use when dispatching sub-agents to switchman-* shells, when a dispatch was denied by the dispatch gate, when picking a lane/shell for a task, or when the user asks about ROUTE_META, lanes, shells, or the session banner.
+description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchman. MANDATORY BEFORE starting any substantive task — implementation, refactoring, multi-file reading or analysis, code-changing debugging, document writing, review, or image work — to pick a lane and dispatch instead of working on the main thread. Also use when composing a dispatch, when a dispatch was denied by the gate, or when the user asks about routing or ROUTE_META. Hands-on main-thread work is only for trivia: one-line fixes, reading 1-2 files at known paths, .switchman bookkeeping, or when the user explicitly says to do it yourself. Before acting, state in one sentence whether the work is done hands-on or dispatched and why (token economy).
 ---
 
 # Fixed-fleet dispatch protocol
+
+## Token-economy routing (dispatch-first)
+
+- Before each substantive action, state in ONE sentence whether you do it
+  yourself or dispatch, with the reason. This statement is mandatory and
+  visible to the user.
+- The cost model:
+  - Hands-on spends main-context tokens now AND on every later turn (the
+    context persists until compaction, and post-compact summaries lose
+    detail).
+  - A dispatch spends a fresh shell context (the shell reads what it needs
+    itself) and returns a compact conclusion — the main context only pays
+    the delegation prompt and the result.
+- Heuristics:
+  - Trivia stays hands-on: one-line fixes / typo fixes; reading 1-2 files
+    whose locations are already known; `.switchman/` bookkeeping (handover
+    docs, settings); coordinating the fleet itself (composing dispatches,
+    reading their results); the user explicitly says "do it yourself".
+  - Substantive work (implementation, refactoring, multi-file reading or
+    analysis, code-changing debugging, document writing, review, image work)
+    defaults to dispatch via DELEGATION_V1 + ROUTE_META to a lane from the
+    banner's [Shells] line.
+  - Context length tips the scale: the longer and heavier the current
+    context (many tool results, near-compact, or just after a compact), the
+    stronger the case for dispatching even medium tasks — do not keep
+    carrying a long context through more hands-on work.
+- When in doubt, dispatch. The per-turn [ROUTE] line and the banner's [Rule]
+  line enforce the same rule; a project opts out with `"dispatch": "off"` at
+  the top level of `.switchman/settings.json` (both lines then disappear).
 
 ## Model
 
@@ -25,8 +54,9 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
   session id), `[Shells]` (the fleet), `[Binding]` (which shells carry a
   model line; without one they follow the default model), `[Sync]`
   (auto-provision report, only when something changed), `[Breaker]` (down
-  shells), `[Workspace]` (artifact root), and `[Handover]` (a pending
-  handover doc, if any).
+  shells), `[Workspace]` (artifact root), `[Rule]` (the token-economy
+  dispatch-first iron rule; disappears when the project opts out via
+  settings), and `[Handover]` (a pending handover doc, if any).
 
 | lane | shell | capability | effort | use for |
 |---|---|---|---|---|
