@@ -15,8 +15,11 @@
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
  *   [LANG]      project language preference iron rule, or the first-run ask
  *               directive while unconfigured (src/lib/lang.mjs)
- *   [Handover]  pending handover doc, injected once, then the pointer is
- *               cleared (written by /switchman-handover)
+ *   [Handover]  pending handover, injected once, then the pointer is cleared
+ *               (written by /switchman-handover). The doc's full text is
+ *               inlined when readable and small; a path-only pointer line is
+ *               the fallback. Either way the next context continues from the
+ *               doc's Next steps without further user action.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -24,7 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
 import { SHELLS } from "../src/lib/shells.mjs";
-import { readPointer, clearPointer } from "../src/lib/handover.mjs";
+import { readPointer, clearPointer, readDocContent } from "../src/lib/handover.mjs";
 import { provisionShells } from "../src/lib/provision.mjs";
 import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
 
@@ -111,12 +114,23 @@ function workspaceLine() {
   return "[Workspace] intermediate artifacts → <project>/.switchman/ (handover docs under .switchman/<date>/<session>/handover/)";
 }
 
+/** Inject the pending handover into the fresh context: full doc text when
+ *  readable and small enough, a path-only pointer otherwise. One-shot: the
+ *  pointer is consumed by this injection either way. */
 function handoverLine(projectDir) {
   if (!projectDir) return null;
   let ptr = null;
   try { ptr = readPointer(projectDir); } catch { return null; }
   if (!ptr) return null;
+  const doc = readDocContent(projectDir, ptr);
   clearPointer(projectDir); // one-shot: consumed by this injection
+  if (doc) {
+    return [
+      `[Handover] resuming from doc (${ptr.path}):`,
+      doc,
+      "Continue from its Next steps now.",
+    ].join("\n");
+  }
   return `[Handover] pending: read ${ptr.path} and continue from its next steps`;
 }
 

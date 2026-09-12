@@ -36,3 +36,26 @@ export function clearPointer(projectDir) {
     /* fail-open */
   }
 }
+
+/**
+ * Read the handover doc referenced by a pointer, for full-text injection
+ * into a fresh (post-compaction) context. Returns the doc text, or null when
+ * the doc is missing/unreadable or exceeds maxBytes — callers degrade to a
+ * path-only injection. Fail-open by design.
+ */
+export function readDocContent(projectDir, ptr, maxBytes = 16 * 1024) {
+  if (!ptr || typeof ptr.path !== "string" || !ptr.path.trim()) return null;
+  let stat;
+  try {
+    stat = fs.statSync(ptr.path);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile() || stat.size > maxBytes || stat.size === 0) return null;
+  try {
+    const text = fs.readFileSync(ptr.path, "utf8");
+    return text.trim() ? text : null;
+  } catch {
+    return null;
+  }
+}

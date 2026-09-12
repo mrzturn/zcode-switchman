@@ -1,190 +1,125 @@
 # zcode-switchman
 
-ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳，一档一壳，壳背后的
-模型由你自己用一行 frontmatter 绑定。壳名永不改变——换模型不动任何 prompt、
-文档与肌肉记忆。
+[English](./README.md) | **中文**
 
-[opencode-switchman](https://github.com/mrzturn/opencode-switchman)
-的移植简化版：ZCode 的子代理注册是静态的、不支持运行时换模型，所以编队固定、
-**模型交给用户**——模板一律 `model: inherit`（六壳都跟随 ZCode 默认模型），
-想钉死某档模型时手动改一行 `~/.zcode/agents`，或用 `/switchman-setup`
-对话式完成。
+> 壳各就各位，模型你来定。
 
-> **发布即脱敏**——本仓库只包含通用模板与代码。任何个人部署的真实服务商、
-> 套餐、模型绑定、配额口径都不入库；你的绑定只存在于你的家目录。
+一个 [ZCode](https://zcode.dev) 编排插件，与 [opencode-switchman](https://github.com/mrzturn/opencode-switchman) 同源，是它的 ZCode 移植版。核心就两件事：
 
-## 编队
+**1. 固定六档子代理编队。** economy / mechanical / main / hard / vision / review，一档一壳。装完插件开个会话它们就自动就位：缺的创建，过期的同步，出故障的熔断隔离。壳名永不改——换模型不动任何 prompt、文档和肌肉记忆。
 
-| 档位 | 壳 | 读写 | 档深 | 用途 |
-|---|---|---|---|---|
-| economy | `switchman-economy` | ro | low | 海量轻量检索/摘要/清点 |
-| mechanical | `switchman-mechanical` | rw | low | 格式化/搬运/数据杂活 |
-| main | `switchman-main` | rw | medium | 日常实现主力 |
-| hard | `switchman-hard` | rw | high | 深度设计/难题攻坚 |
-| vision | `switchman-vision` | ro（image） | medium | 看图/截图驱动的工作 |
-| review | `switchman-review` | ro | high | 只评审的第二双眼睛 |
+**2. 模型是你的一行私产。** ZCode 的子代理注册是静态的，跑起来换不了模型，所以这一版把模型完全交给你：所有壳默认 `model: inherit`，跟着会话默认模型走；想钉死哪档，就在那档的 frontmatter 里改一行 `model:`，或者用 `/switchman-setup` 对话式完成。插件从不检查、也从不评判你绑了什么。
 
-- 壳只绑定 *职责类别 × 工具白名单 × 思考档位*；角色由每次委派 prompt
-  动态赋予（DELEGATION_V1）。
-- 每个壳默认 `model: inherit`——跟随会话默认模型，零配置即可用；想按档位
-  钉死模型才有真正的多模型分工。插件从不检查、从不评判模型：你钉什么
-  （或继承什么）就跑什么。
+在此之上：
 
-## 功能
+- **派发有纪律**。每个壳的委派必须带一行 `ROUTE_META` 元数据，门禁做确定性校验：读写错配、看图任务派错壳，一律拦下并告诉你该派给谁；连续失败自动熔断，到点自愈。
+- **发布即脱敏**。仓库里只有通用模板和代码，任何真实的服务商、套餐、模型绑定、配额口径都不入库——你的绑定只存在于你的家目录。
 
-- **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进
-  `~/.zcode/agents/`：缺失的壳从模板创建，过期的正文同步到当前模板
-  （插件升级零操作自动生效），每个壳的 `model:` 行原样保留。装完插件
-  无需任何命令——开个会话就好。
-- **模型 = 一行用户私产**——模板默认 `model: inherit`；钉死模型就是在壳
-  frontmatter 里改一行 `model: "..."`，手改或用 `/switchman-setup`
-  对话式完成（选钉死时才用 `scripts/discover-models.mjs` 发现你的
-  ZCode 模型，绝不读取/打印 API key）。
-- **派发门禁**（PreToolUse hook）——每个壳派发过三闸：失败熔断 →
-  `ROUTE_META` 校验 → 语义（rw 任务不能派给只读壳、image 任务只能派给
-  视觉壳）。非 switchman 代理原样放行。
-- **ROUTE_META 契约**——每个壳委派 prompt 必带一行元数据：
-  `ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}`
-- **熔断自愈**（PostToolUseFailure hook）——10 分钟窗口内失败 2 次触发该壳
-  10 分钟自动恢复的熔断；not-found 类错误只熔断请求名本身，拼错名不会
-  牵连健康壳。
-- **会话横幅**（SessionStart hook）——每次会话启动注入
-  `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace]`
-  上下文（`[Sync]` 仅在本次装配有变动时出现；有待交接时再多一行一次性的
-  `[Handover]`）。
-- **项目工作区 `.switchman/`**——所有中间产物（壳的落盘输出、scratch
-  分析、交接文档）统一放项目根的 `.switchman/`，绝不散落源码目录；该规则
-  由横幅、routing 技能、壳模板与委派模板四处共同承载。
-- **项目语言偏好**——每项目的对话 / 注释 / 文档语言（
-  `<project>/.switchman/settings.json`，AGENTS.md marker 只读回退）。未配置
-  项目首次使用：改动任何东西之前，模型必须先问一次——经 AskUserQuestion 的
-  三道 `switchman-lang n/3` 问题——期间 Bash/Write/Edit 与壳派发被门禁拦截；
-  答案由插件捕获落盘，之后 `[LANG]` 铁律行在会话启动与每轮用户输入时重注入
-  （用户临时的语言要求只对单轮生效）。用户拒绝则写入会话豁免，本轮会话不再
-  追问。
-- **命令与技能**——`/switchman-setup`（对话式改绑模型）、`/switchman-doctor`、
-  `/switchman-handover`（总结→交接文档→fork 备份→compact→续作）、
-  `/switchman-lang`（查看/重设语言偏好），外加四个随插件技能：
-  `switchman-routing`（派发协议）与三个自源项目平移的同伴技能——
-  `git-commit-message`（只产出提交文案，绝不执行 git）、`requirement-docs`
-  （需求/PRD/设计文档规范，归档到 `docs/requirements-and-design/`）、
-  `db-query`（内置脚本只读核验 MySQL/Redis，拒绝一切写操作）。
+## 和 opencode-switchman 的差异
 
-## 快速开始
+同源同作者，六档编队、ROUTE_META 派发协议、同伴技能都是同一套。差异来自宿主：OpenCode 插件跑在宿主进程里，平台给得多；ZCode 插件是声明式组件加独立进程 hook，给不了的就砍掉。
 
-**前置要求**：`PATH` 上有 Node.js ≥ 18。插件 hooks 以 `node` 子进程运行
-（与官方 ZCode 插件模板一致）；没有 node 时按 fail-open 静默失效——
-`/switchman-doctor` 的第一项就是检查这个。
+| | [opencode-switchman](https://github.com/mrzturn/opencode-switchman)（OpenCode 版） | 本仓库（ZCode 版） |
+|---|---|---|
+| 壳矩阵 | 动态，发现模型就生成壳，运行时可换 | 固定六档，壳名不变 |
+| 模型调度 | 自动：加权评分、配额感知、探测、高峰避让 | 手动：每壳一行 `model:`，你说了算 |
+| 上下文水位控制 | 有：实测水位、读类闸门、软硬水位、自动备份压缩 | 没有 |
+| 会话交接 | 全自动：fork 备份、压缩、无缝续作 | 命令引导：写好交接文档，你按一次 `/compact`，hook 注入文档全文自动续作；fork 由你在客户端菜单自行决定 |
+| 界面 | TUI 面板 + tmux 窗格镜像 | 会话横幅 + 4 个 slash 命令 |
 
-```bash
-# 1. 安装插件（marketplace，或让 ZCode 指向本目录）
+想看完整形态，去[源仓库](https://github.com/mrzturn/opencode-switchman)；想看这份取舍的来龙去脉，看[移植设计文档](./docs/porting-handover.md)。
 
-# 2. 开一个 ZCode 会话——完事。SessionStart hook 会自动把六壳装配进
-#    ~/.zcode/agents/（默认 model: inherit，在 Settings → Subagents 可见；
-#    若当前会话早于装配，下一个会话即可看到）。
+## 安装
 
-# 3. 可选——按档位钉死模型（默认保持 inherit）：
-/switchman-setup                          # 对话式：发现你的 ZCode 模型，
-#                                         # 只改那一行
-#    或手动：
-$EDITOR ~/.zcode/agents/switchman-main.md # 设：  model: "你的模型ID"
-#                                         # 或：  model: inherit
+在 ZCode 客户端里：**Settings → Plugin Management → Discover**，点 **`+`** 添加 marketplace，填本仓库地址 `https://github.com/mrzturn/zcode-switchman`（仓库根带 `marketplace.json`；本地路径也行），然后在插件卡片上点 **Get**。装完即默认启用。
 
-# 4. 再开一个新会话——启动时会出现横幅
+嫌麻烦就让 AI 替你装，把下面这段话复制给 ZCode：
+
+<details>
+<summary><strong>AI 代安装提示词</strong></summary>
+
+```text
+请为我的 ZCode 安装 zcode-switchman 插件。以仓库 README 为准，不要凭记忆猜步骤。
+
+官方来源：https://github.com/mrzturn/zcode-switchman
+
+步骤：
+1. 先读该仓库 README 的「安装」一节，然后照做：Settings → Plugin Management → Discover，用「+」把该仓库添加为 marketplace，再在插件卡片上点 Get 安装。
+2. 装完重开一个 ZCode 会话，确认启动横幅里有 [Session] 和 [Shells] 行，[Shells] 列出 switchman-economy / mechanical / main / hard / vision / review 六个壳。
+3. 在会话里运行 /switchman-doctor，七项自检全部通过。
+
+三步都通过才算完成；请汇报你做过的改动，并附上横幅与 doctor 输出作为证据。
 ```
 
-state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）；
-存放 `routing.json`（熔断）与 `failures.log`。
+</details>
 
-派发级实装验收得出的三条结论：
+**前置条件**：ZCode 客户端，以及 `PATH` 上的 Node.js ≥ 18。hooks 以 `node` 子进程运行，没有 node 时插件按 fail-open 静默失效——`/switchman-doctor` 的第一项就是查这个。
 
-- **壳文件在会话启动时快照**——改 `~/.zcode/agents/` 里的 `model:`
-  （或 tools/description）**不会**热生效；需重开一个 ZCode 会话才加载。
-- **壳默认 `model: inherit`**（跟随会话默认模型）。要查某次派发实际跑在
-  哪个模型上，读 ZCode 日志（`~/.zcode/cli/log/zcode-<日期>.jsonl`），找带
-  `"querySource":"subagent"` 的事件——其 `model` 字段是权威记录。
-- **命令显示形式**：本插件命令在客户端 `/` 菜单里显示为
-  `$switchman-setup`（`$` 前缀 + 文件名，不带插件名前缀，不存在双重
-  前缀问题）。
+## 快速上手
 
-## 工作区与交接
+1. **装插件，重开会话。** 启动横幅的 `[Shells]` 行列出六壳，它们已被装配进 `~/.zcode/agents/`（Settings → Subagents 可见）。若当前会话早于装配，下一个会话就能看到。
+2. **（可选）钉模型。** 默认 `model: inherit` 已经够用；想让某档跑固定模型，跑 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` 行。壳文件在会话启动时快照，改完要重开会话才生效。
+3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发，你也可以直接说「这活派给 hard」。每次委派自带 ROUTE_META，门禁自动把关。
+4. **心里没底就体检。** `/switchman-doctor`，七项自检。
+5. **会话跑长了就交接。** `/switchman-handover` 把当前会话总结成 `.switchman/` 下的交接文档并留下指针，你按一次 `/compact`，SessionStart hook 把文档全文注入新上下文，从 Next steps 无缝接着干。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
 
-所有 switchman 中间产物统一放**项目根的 `.switchman/`** 目录——壳的落盘
-输出、scratch 分析、提取的数据、交接文档。`rw` 壳在委派 prompt 里拿到明确
-的产物路径（缺省 `.switchman/`）；`ro` 壳不落盘——产物以文本返回，由委派方
-落盘。除非想给交接文档做版本管理，建议把 `.switchman/` 加进项目的
-`.gitignore`。
+state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖），存熔断状态 `routing.json` 和失败记录 `failures.log`。本插件的命令在 `/` 菜单里显示为 `$switchman-setup` 这样的形式，是同一批命令。
 
-`/switchman-handover` 把当前会话交接给新上下文：
+## 核心功能
 
-1. 把会话总结写进
-   `.switchman/<日期>/<会话 ID>/handover/handover.md`（固定章节；
-   「Next steps」是续作起点）。
-2. 写指针 `.switchman/handover.json`——SessionStart hook 在下一次会话启动
-   （含 compact）时注入 `[Handover] pending:` 行并清除该文件（一次性）。
-3. Fork 当前会话作为 compact 前的备份（客户端会话列表，或支持的 CLI；
-   即使不 fork，转录 `~/.zcode/cli/rollout/model-io-<会话 ID>.jsonl` 也不
-   会因 compact 丢失）。
-4. 执行 `/compact`——新上下文会从 `[Handover]` 行拿到文档路径，读取文档并
-   从 Next steps 继续。
+**核心**
 
-### 验证
+- **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进 `~/.zcode/agents/`：缺失的从模板创建，过期的正文同步到当前模板（插件升级零操作生效）。`model:` 行归你，壳正文归模板，同步永不覆盖你的模型行。
+- **派发门禁与熔断**——PreToolUse hook 给每次壳派发过三闸：失败熔断 → ROUTE_META 校验 → 语义闸（rw 的活不能派给只读壳，看图只能派 vision）。10 分钟内失败 2 次熔断该壳 10 分钟；not-found 类错误只熔断被请求的名字，拼错壳名不牵连健康壳。非 switchman 代理原样放行；门禁自身坏了 fail-open，绝不挡活。
 
-```bash
-/switchman-doctor                # ZCode 内：7 项自检
-node --test "test/*.test.mjs"    # 契约测试
-```
+**辅助**
 
-## 架构
+- **会话横幅**——每次启动注入 `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace]`；装配有变动才出现 `[Sync]`，有待交接时多一行一次性的 `[Handover]`。
+- **项目语言偏好**——每个项目记住自己的对话/注释/文档语言。没配置过的项目，在改动任何东西之前模型必须先回答三道 `switchman-lang` 问题，期间改文件和派发都被门禁拦着；答案落盘 `<project>/.switchman/settings.json`，之后 `[LANG]` 铁律每轮重注入。你临时提的语言要求只对当轮生效。
+- **项目工作区 `.switchman/`**——壳的落盘输出、scratch 分析、交接文档统一放项目根的 `.switchman/`，不散落源码目录。建议加进项目的 `.gitignore`。
+- **四条命令**——`/switchman-setup` 钉模型、`/switchman-doctor` 体检、`/switchman-handover` 交接、`/switchman-lang` 重设语言偏好。
+- **四个技能**——`switchman-routing`（派发协议），以及自源项目原样平移的三个同伴：`git-commit-message`（只产出提交文案，绝不执行 git）、`requirement-docs`（需求/PRD/设计文档规范）、`db-query`（内置脚本只读核验 MySQL/Redis，拒绝一切写操作）。
+
+## 文档
+
+- 派发协议（六档怎么挑、ROUTE_META 怎么写）：[skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
+- 委派 prompt 模板（DELEGATION_V1）：[assets/delegation-template.md](./assets/delegation-template.md)
+- 移植设计文档（平台差异、取舍、目标结构）：[docs/porting-handover.md](./docs/porting-handover.md)
+
+## 仓库结构与契约
 
 ```
-templates/agents/       ← 六壳正本（随插件分发；会话启动自动装配到 ~/.zcode/agents）
-src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / handover / state / provision / lang
-hooks/                  ← SessionStart（装配 + 横幅 + [LANG]）· UserPromptSubmit（每轮 [LANG]）
-                          · PreToolUse(Agent|Task|Write|Edit|Bash) · PostToolUse(AskUserQuestion)
-                          · PostToolUseFailure
-scripts/discover-models.mjs ← 枚举 ZCode 已配置模型（供 /switchman-setup）
-commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover · /switchman-lang
-skills/                    ← switchman-routing（派发协议）+ 三个同伴技能：
-                             git-commit-message · requirement-docs · db-query（只读 DB）
-assets/delegation-template.md ← DELEGATION_V1 委派 prompt 模板
-test/                   ← 契约测试（meta fixtures、编队、装配、hook 冒烟）
+templates/agents/   六壳正本，会话启动自动装配到 ~/.zcode/agents
+src/lib/            共享核心：shells / meta / breaker / provision / handover / lang / state
+hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse · PostToolUseFailure
+commands/           setup · doctor · handover · lang
+skills/             switchman-routing + git-commit-message / requirement-docs / db-query
+test/               契约测试（node --test test/*.test.mjs）
 ```
 
-沿袭源项目的设计规则：
+改代码前扫一眼这几条，都有测试锁定：
 
-- **处处 fail-open**——门禁坏了绝不阻塞干活；错误写 stderr，派发照常放行。
-- **单一实现源**——hooks 都调用 `src/lib/*`，门禁语义在不同入口间永不漂移。
-- **hook 保持轻量**——只读本地文件、不联网，3 秒预算内绰绰有余。
+1. 壳名 `switchman-<档位>` 是稳定标识，小版本绝不改。
+2. ROUTE_META 行：键白名单、值小写、前 4000 字符内解析；`role` / `capability` / `source` 必填，未知键忽略。
+3. `model:` 行归用户，壳正文归模板，装配同步不碰模型行。
+4. deny 必附言：每次拦截都说明该改派哪个档位。
+5. 门禁处处 fail-open：坏了写 stderr、放行，不挡活。
+6. `.switchman/handover.json` 指针由 `/switchman-handover` 写入，SessionStart hook 一次性消费。
 
-## 契约（勿随意破坏）
+## 计划与展望
 
-1. **ROUTE_META 行**——五个白名单键、值小写、解析前 4000 字符；
-   `role` / `capability` / `source` 为必填安全字段；未知键直接忽略。
-   行为由 `test/meta.test.mjs` 锁定。
-2. **壳名**——`switchman-<档位>` 是稳定标识符：委派 prompt、文档、deny
-   附言、横幅都引用它。小版本绝不改壳名。
-3. **state 文件**——`routing.json`（`down_agents` + `down_expiry`）、
-   `failures.log`（JSONL），以及项目级 `.switchman/handover.json` 指针
-   （由 `/switchman-handover` 写入、SessionStart hook 一次性消费）。
-4. **deny 附言**——每次拒绝都说明应改用哪个档位/壳。
-5. **model 行归属**——壳正文归模板所有（每次会话启动由
-   `src/lib/provision.mjs` 自动同步）；`model:` 行归用户所有，同步时原样
-   保留。模板默认 `model: inherit`；插件永不挑选、校验、评判模型。
-6. **[LANG] 行与首次三问**——项目语言偏好存于
-   `<project>/.switchman/settings.json`（AGENTS.md marker 只读回退）；该文件
-   缺失且未被豁免时，改动类工具与壳派发一律拦截，直到三道
-   `switchman-lang` 问题被回答并落盘（插件捕获，或模型写 settings 文件 /
-   会话豁免文件）。行为由 `test/lang.test.mjs` 锁定。
-
-## 路线图
-
-- [ ] userConfig 逐壳开关（state 目录、模板目录）
-- [ ] 派发记账（PostToolUse 台账：档位、耗时、结果）
-- [ ] 探测矩阵集成（可选、需显式开启）
-- [ ] 多池档位链——完整版 opencode-switchman 路由器作为可选「进阶模式」
+- [ ] 逐壳 userConfig 开关（state 目录、模板目录）
+- [ ] 派发记账（每条派发的档位、耗时、结果）
+- [ ] 探测矩阵集成（可选，需显式开启）
+- [ ] 完整版路由器：把源项目的评分调度作为可选「进阶模式」搬过来
 - [ ] 无视觉主模型的图像中继
 
-## 许可
+有想法欢迎开 issue。
 
-MIT——见 [LICENSE](LICENSE)。
+## 为爱发电
+
+和 opencode-switchman 同源同作者。如果这套东西帮到了你，请作者喝杯咖啡的二维码在源仓库的[为爱发电](https://github.com/mrzturn/opencode-switchman/blob/main/README.zh.md#为爱发电)一节。
+
+## License
+
+MIT，见 [LICENSE](LICENSE)。

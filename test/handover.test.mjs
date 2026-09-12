@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const project = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-handover-"));
-const { pointerPath, readPointer, writePointer, clearPointer } = await import(
+const { pointerPath, readPointer, writePointer, clearPointer, readDocContent } = await import(
   "../src/lib/handover.mjs"
 );
 
@@ -43,4 +43,35 @@ test("fail-open: corrupt JSON or a pathless pointer reads as none", () => {
   fs.writeFileSync(pointerPath(project), JSON.stringify({ session_id: "s" }), "utf8");
   assert.equal(readPointer(project), null);
   fs.rmSync(path.join(project, ".switchman"), { recursive: true, force: true });
+});
+
+test("readDocContent: returns full text for a readable small doc", () => {
+  const doc = path.join(project, "handover.md");
+  fs.writeFileSync(doc, "# Handover\n\n- next step one\n- next step two\n", "utf8");
+  const text = readDocContent(project, { path: doc });
+  assert.ok(text.includes("# Handover"));
+  assert.ok(text.includes("next step two"));
+});
+
+test("readDocContent: null when the doc is missing", () => {
+  assert.equal(readDocContent(project, { path: path.join(project, "nope.md") }), null);
+  assert.equal(readDocContent(project, null), null);
+  assert.equal(readDocContent(project, {}), null);
+});
+
+test("readDocContent: null when the doc exceeds maxBytes (degrade to path)", () => {
+  const doc = path.join(project, "big.md");
+  fs.writeFileSync(doc, "x".repeat(17 * 1024), "utf8");
+  assert.equal(readDocContent(project, { path: doc }), null);
+  assert.equal(readDocContent(project, { path: doc }, 18 * 1024).length, 17 * 1024);
+});
+
+test("readDocContent: null for an empty or whitespace-only doc", () => {
+  const doc = path.join(project, "empty.md");
+  fs.writeFileSync(doc, "  \n  ", "utf8");
+  assert.equal(readDocContent(project, { path: doc }), null);
+});
+
+test("readDocContent: null when the pointer path is a directory", () => {
+  assert.equal(readDocContent(project, { path: project }), null);
 });
