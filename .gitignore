@@ -1,0 +1,12 @@
+# Private porting/handover notes — never publish
+docs/
+
+# Generated per-user agent shells (contain personal model bindings)
+agents/*.md
+
+# User-local runtime state (registries, quota caches, failure logs)
+state/
+*.log
+
+node_modules/
+.DS_Store

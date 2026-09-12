@@ -1,0 +1,47 @@
+{
+  "description": "zcode-switchman routing hooks: session banner, dispatch gate, failure breaker.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/session-start.mjs"],
+            "timeoutMs": 10000,
+            "statusMessage": "zcode-switchman: rendering routing banner…"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/pre-tool-use.mjs"],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-switchman: checking dispatch gate…"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/post-tool-failure.mjs"],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-switchman: recording dispatch failure…"
+          }
+        ]
+      }
+    ]
+  }
+}
