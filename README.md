@@ -34,15 +34,15 @@ dispatch, trip circuit breakers on repeated failures, and respect pool quota.
 - **Routing MCP server** — `route_query`, `registry_list`, `breaker_status`.
 - **CLI** — `scripts/route-cli.mjs` (deterministic JSON output) and
   `scripts/gen-shells.mjs` (generates `agents/*.md` + registry from config).
-- **Commands & skill** — `/setup` (conversational first-run configuration
-  with model discovery), `/handover`, `/doctor`, and the `switchman-routing`
+- **Commands & skill** — `/switchman-setup` (conversational first-run configuration
+  with model discovery), `/switchman-handover`, `/switchman-doctor`, and the `switchman-routing`
   dispatch-protocol skill.
 
 ## Quick start
 
 **Prerequisite**: Node.js ≥ 18 on your `PATH`. Plugin hooks and the MCP server
 run as `node` child processes (same as the official ZCode plugin templates);
-without node they fail open and the plugin silently does nothing — `/doctor`
+without node they fail open and the plugin silently does nothing — `/switchman-doctor`
 checks this first.
 
 ```bash
@@ -51,7 +51,7 @@ checks this first.
 # 2. Build your shell matrix — pick one:
 #    a) conversational setup (discovers your ZCode models, asks pool/lane
 #       questions, writes config/matrix.json for you):
-/zcode-switchman:setup
+/switchman-setup
 #
 #    b) manual:
 cp config/matrix.example.json config/matrix.json

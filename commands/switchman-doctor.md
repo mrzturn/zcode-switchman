@@ -2,7 +2,7 @@
 description: Diagnose the zcode-switchman routing setup (config, registry, lanes, hooks)
 ---
 
-# /doctor — routing self-check
+# /switchman-doctor — routing self-check
 
 Run these checks and report each as ok / degraded / failed with evidence. Do
 not fix anything without asking; print a summary table at the end.

@@ -2,7 +2,7 @@
 description: Interactive conversational setup for zcode-switchman — discover available models, build the shell matrix with the user, generate agents + registry
 ---
 
-# /setup — zcode-switchman conversational configuration
+# /switchman-setup — zcode-switchman conversational configuration
 
 Walk the user through building their shell matrix (`config/matrix.json`) by
 asking questions, then generate the agent shells. Ask in the user's language.
@@ -100,7 +100,7 @@ mention them once and offer to drop them.
    - next session should show the `[Route]` banner;
    - optional: point refresh scripts at `<state>/<pool>-quota.json`
      (format: `{"status":"ok","fetched_at":<ts>,"scopes":{"<scope>":{"used_pct":0-100}}}`);
-   - run `/zcode-switchman:doctor` to verify.
+   - run `/switchman-doctor` to verify.
 
 ## Rules
 
