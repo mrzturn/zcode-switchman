@@ -8,16 +8,25 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 ## Model
 
 - The fleet is **fixed**: six shells, one per lane. Shell names never change —
-  only the user-bound model behind each shell does (a `model:` line in
-  `~/.zcode/agents/<shell>.md`; the literal value `inherit` means the shell
-  follows the default model).
+  only the model behind each shell does (a `model:` line in
+  `~/.zcode/agents/<shell>.md`). The plugin default is `model: inherit`
+  (follow the session default model); pinning any other model is a manual,
+  per-user edit — by hand or via `/switchman-setup`. Templates never pick
+  models, and the gate never inspects them.
+- Shells **self-provision**: the SessionStart hook installs all six into the
+  user agents dir at every session start — missing shells are created from
+  templates, stale bodies are synced to the current templates (plugin updates
+  propagate with no user action), and each shell's `model:` line is preserved
+  verbatim.
 - A shell binds only *role class × tool whitelist × thought level*; the role
   is assigned dynamically by each dispatch prompt (DELEGATION_V1). The role
   contract and task live in the prompt, never in the shell.
 - Read the SessionStart banner for session context: `[Session]` (current
-  session id), `[Shells]` (the fleet), `[Binding]` (which shells run a
-  user-bound model), `[Breaker]` (down shells), `[Workspace]` (artifact
-  root), and `[Handover]` (a pending handover doc, if any).
+  session id), `[Shells]` (the fleet), `[Binding]` (which shells carry a
+  model line; without one they follow the default model), `[Sync]`
+  (auto-provision report, only when something changed), `[Breaker]` (down
+  shells), `[Workspace]` (artifact root), and `[Handover]` (a pending
+  handover doc, if any).
 
 | lane | shell | capability | effort | use for |
 |---|---|---|---|---|
@@ -29,7 +38,7 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 | review | `switchman-review` | ro | high | review-only second pair of eyes |
 
 - Reviews are plain second-opinion dispatches: the review shell runs whatever
-  model the user bound in its frontmatter; the gate never inspects models.
+  model the user configured in its frontmatter; the gate never inspects models.
 
 ## Workspace
 

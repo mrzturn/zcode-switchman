@@ -1,25 +1,32 @@
 ---
-description: Interactive conversational setup for zcode-switchman — install the six shell templates and bind models per lane
+description: Conversational model rebinding for zcode-switchman — shells self-provision at session start; setup only edits the per-shell model line (default inherit)
 ---
 
-# /switchman-setup — zcode-switchman conversational configuration
+# /switchman-setup — zcode-switchman conversational model rebinding
 
-Walk the user through installing the six fixed shells and binding a model to
-each. The shells themselves never change — the fleet is fixed (six lanes, one
-shell per lane) — so setup only decides **which model each shell runs on**.
-Ask in the user's language; ask in small batches (1–3 questions per turn),
-always offering a sensible default so the user can just say "默认".
+Installing and updating the shells is **not** this command's job: the
+SessionStart hook auto-provisions the fleet on every session start — missing
+shells are created from `templates/agents/` with the plugin default
+`model: inherit`, and stale bodies are synced to the current templates while
+each shell's `model:` line is preserved verbatim. That one line is user-owned
+and is the only thing the plugin never overwrites.
 
-## Step 0 — mode detection
+This command is the conversational way to edit exactly that line: report the
+current bindings, optionally discover ZCode's models, and pin or reset lanes
+as asked. Templates never choose models, and the plugin never validates or
+judges them — whatever the user pins is what runs. Ask in the user's
+language; ask in small batches (1–3 questions per turn), always offering the
+sensible default so the user can just say "默认" (= leave it on `inherit`).
+
+## Step 0 — report current bindings
 
 User shell directory: `$ZCODE_SWITCHMAN_AGENTS_DIR` if set, else
-`~/.zcode/agents`. If any `switchman-*.md` files exist there, switch to
-**edit mode**: read them, summarize current bindings in a compact table
-(shell → model or "unbound"), and ask what to change (rebind a lane, bind
-remaining lanes). Apply only what is asked, then jump to Step 4. Otherwise
-run **first-time setup** below.
+`~/.zcode/agents`. Read the six `switchman-*.md` files (create none — the
+session hook owns provisioning) and summarize them in a compact table
+(shell → `inherit` or the pinned model id). Ask which lanes to change: pin a
+model, or reset to `inherit`. Apply only what is asked, then jump to Step 3.
 
-## Step 1 — runtime + model discovery
+## Step 1 — model discovery (only when the user wants to pin)
 
 1. Check `command -v node && node --version` (>= 18 required). If missing,
    stop and explain: hooks run as `node` child processes.
@@ -36,64 +43,38 @@ run **first-time setup** below.
    user to add providers/models in ZCode settings first. Never invent model
    ids — but always accept a model string the user pastes themselves.
 
-## Step 2 — bind models to lanes
+## Step 2 — apply the asked changes (edit one line, nothing else)
 
-Present the six shells (they do not exist on disk yet; setup creates them)：
+For each lane the user asked to change, edit **only** the `model:` line in
+that shell's frontmatter — replace the existing line if present, otherwise
+insert one after `color:`:
 
-| shell | lane | reads/writes | effort | for |
-|---|---|---|---|---|
-| `switchman-economy` | economy | ro | low | bulk light retrieval / summarization / triage |
-| `switchman-mechanical` | mechanical | rw | low | reformat / move / data chores |
-| `switchman-main` | main | rw | medium | day-to-day implementation workhorse |
-| `switchman-hard` | hard | rw | high | deep design / hard problems |
-| `switchman-vision` | vision | ro | medium | image understanding / screenshot work |
-| `switchman-review` | review | ro | high | review-only second pair of eyes |
+- pin: `model: "<model-id>"` (verbatim from discovery output or user input);
+- reset: `model: inherit` — the shell follows the session default model.
 
-For each shell ask: "which model?" — the user answers with a table number, a
-model id, `inherit`, or `skip`. Default to propose: **`inherit`** for every
-lane (the shell then runs on ZCode's default model at dispatch time — nothing
-is pinned). If the user wants to pin, suggest per lane:
+Never touch any other line: shell bodies are template-owned and auto-synced
+at session start. If the user wants per-lane pinning suggestions: `main` —
+the strongest general model they use daily; `hard` — their strongest
+reasoner (may equal main); `mechanical` / `economy` — their cheapest/fastest
+model; `vision` — a model with `vision=true` (warn if none is enabled).
 
-- `main`: the strongest general model they use daily;
-- `hard`: their strongest reasoner (may equal main);
-- `mechanical` / `economy`: their cheapest/fastest model;
-- `vision`: a model with `vision=true` (if none, mark unbound and say so).
-
-`inherit` writes `model: inherit` in the frontmatter: the shell inherits the
-default model. `skip` leaves the shell unbound: it writes no `model:` line at
-all, and the shell likewise follows the session default model.
-
-Model choices are never validated or judged by the plugin — whatever the user
-pins is what runs; the gate only checks lane capability/modality, not models.
-
-## Step 3 — install shells
-
-1. For each shell, read the template
-   `${ZCODE_PLUGIN_ROOT}/templates/agents/<shell>.md` and write it to the
-   user shell directory (Step 0 path), inserting the chosen binding as a
-   `model: "<model-id>"` line in the frontmatter (after `color:`) — or
-   `model: inherit` when the user chose `inherit`. A skipped shell gets no
-   `model:` line at all — do not write placeholders.
-   Existing files: show the diff intent and ask before overwriting.
-2. No other state is written: model bindings live only in the shell
-   frontmatter, and the plugin never derives or stores model metadata.
-
-## Step 4 — close
+## Step 3 — close
 
 Checklist for the user:
 
-- start a **new ZCode session** so the shells are picked up (Settings →
-  Subagents should list the six switchman shells);
-- the new session's banner shows `[Shells] / [Binding] / [Breaker]`;
+- start a **new ZCode session** — agent files are snapshotted at session
+  start and edits do not hot-reload; the change shows in the new session's
+  `[Binding]` banner line;
 - run `/switchman-doctor` to verify;
-- rebinding later = re-run `/switchman-setup` or edit the `model:` line in
-  `~/.zcode/agents/<shell>.md` — then **start a new session**: agent files
-  are snapshotted at session start and edits do not hot-reload. Shell names
-  never change.
+- the shells themselves never need reinstalling — the session hook keeps
+  bodies synced to the templates across plugin updates. Shell names never
+  change.
 
 ## Rules
 
 - Never print API keys or provider credentials; model metadata only.
 - Model ids come from discovery output or verbatim user input — never guess.
+- Model choices are never validated or judged by the plugin — the gate only
+  checks lane capability/modality, never models.
 - Rebinding a model never requires regenerating anything else: shell names,
   the dispatch protocol, and docs are stable.

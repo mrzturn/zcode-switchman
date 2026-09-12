@@ -6,7 +6,8 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 
 [opencode-switchman](https://github.com/mrzturn/opencode-switchman)
 的移植简化版：ZCode 的子代理注册是静态的、不支持运行时换模型，所以编队固定、
-**模型绑定交给用户**——手动改 `~/.zcode/agents`，或用 `/switchman-setup`
+**模型交给用户**——模板一律 `model: inherit`（六壳都跟随 ZCode 默认模型），
+想钉死某档模型时手动改一行 `~/.zcode/agents`，或用 `/switchman-setup`
 对话式完成。
 
 > **发布即脱敏**——本仓库只包含通用模板与代码。任何个人部署的真实服务商、
@@ -25,17 +26,20 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 
 - 壳只绑定 *职责类别 × 工具白名单 × 思考档位*；角色由每次委派 prompt
   动态赋予（DELEGATION_V1）。
-- 壳**未绑定模型**时跟随会话默认模型——零配置即可用；绑了模型才有真正的
-  多模型分工。插件从不检查、从不评判模型：你绑什么（或继承什么）就跑什么。
+- 每个壳默认 `model: inherit`——跟随会话默认模型，零配置即可用；想按档位
+  钉死模型才有真正的多模型分工。插件从不检查、从不评判模型：你钉什么
+  （或继承什么）就跑什么。
 
 ## 功能
 
-- **六个固定壳**——以模板随插件分发，安装到 `~/.zcode/agents/`（在
-  Settings → Subagents 里与其他子代理一样可见）。
-- **绑定模型 = 一行**——壳 frontmatter 里的 `model: "..."`，或
-  `model: inherit` 表示跟随默认模型；`/switchman-setup` 替你写入（默认
-  提议 `inherit`），选钉死模型时才用 `scripts/discover-models.mjs` 发现
-  你的 ZCode 模型（绝不读取/打印 API key）。
+- **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进
+  `~/.zcode/agents/`：缺失的壳从模板创建，过期的正文同步到当前模板
+  （插件升级零操作自动生效），每个壳的 `model:` 行原样保留。装完插件
+  无需任何命令——开个会话就好。
+- **模型 = 一行用户私产**——模板默认 `model: inherit`；钉死模型就是在壳
+  frontmatter 里改一行 `model: "..."`，手改或用 `/switchman-setup`
+  对话式完成（选钉死时才用 `scripts/discover-models.mjs` 发现你的
+  ZCode 模型，绝不读取/打印 API key）。
 - **派发门禁**（PreToolUse hook）——每个壳派发过三闸：失败熔断 →
   `ROUTE_META` 校验 → 语义（rw 任务不能派给只读壳、image 任务只能派给
   视觉壳）。非 switchman 代理原样放行。
@@ -45,12 +49,13 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
   10 分钟自动恢复的熔断；not-found 类错误只熔断请求名本身，拼错名不会
   牵连健康壳。
 - **会话横幅**（SessionStart hook）——每次会话启动注入
-  `[Session] / [Shells] / [Binding] / [Breaker] / [Workspace]` 五行上下文
-  （有待交接时再多一行一次性的 `[Handover]`）。
+  `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace]`
+  上下文（`[Sync]` 仅在本次装配有变动时出现；有待交接时再多一行一次性的
+  `[Handover]`）。
 - **项目工作区 `.switchman/`**——所有中间产物（壳的落盘输出、scratch
   分析、交接文档）统一放项目根的 `.switchman/`，绝不散落源码目录；该规则
   由横幅、routing 技能、壳模板与委派模板四处共同承载。
-- **命令与技能**——`/switchman-setup`（对话式首配绑模型）、`/switchman-doctor`、
+- **命令与技能**——`/switchman-setup`（对话式改绑模型）、`/switchman-doctor`、
   `/switchman-handover`（总结→交接文档→fork 备份→compact→续作）与
   `switchman-routing` 派发协议技能。
 
@@ -63,17 +68,18 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 ```bash
 # 1. 安装插件（marketplace，或让 ZCode 指向本目录）
 
-# 2. 安装壳并绑定模型——二选一：
-#    a) 对话式（自动发现 ZCode 可用模型，逐档询问，代写文件）：
-/switchman-setup
-#
-#    b) 手动：
-mkdir -p ~/.zcode/agents
-cp <插件目录>/templates/agents/switchman-*.md ~/.zcode/agents/
-$EDITOR ~/.zcode/agents/switchman-main.md   # 加一行：  model: "你的模型ID"
-                                            # 或：      model: inherit
+# 2. 开一个 ZCode 会话——完事。SessionStart hook 会自动把六壳装配进
+#    ~/.zcode/agents/（默认 model: inherit，在 Settings → Subagents 可见；
+#    若当前会话早于装配，下一个会话即可看到）。
 
-# 3. 开一个新 ZCode 会话——启动时会出现横幅
+# 3. 可选——按档位钉死模型（默认保持 inherit）：
+/switchman-setup                          # 对话式：发现你的 ZCode 模型，
+#                                         # 只改那一行
+#    或手动：
+$EDITOR ~/.zcode/agents/switchman-main.md # 设：  model: "你的模型ID"
+#                                         # 或：  model: inherit
+
+# 4. 再开一个新会话——启动时会出现横幅
 ```
 
 state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）；
@@ -83,8 +89,8 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 - **壳文件在会话启动时快照**——改 `~/.zcode/agents/` 里的 `model:`
   （或 tools/description）**不会**热生效；需重开一个 ZCode 会话才加载。
-- **未绑定的壳跟随会话默认模型。** 要查某次派发实际跑在哪个模型上，读
-  ZCode 日志（`~/.zcode/cli/log/zcode-<日期>.jsonl`），找带
+- **壳默认 `model: inherit`**（跟随会话默认模型）。要查某次派发实际跑在
+  哪个模型上，读 ZCode 日志（`~/.zcode/cli/log/zcode-<日期>.jsonl`），找带
   `"querySource":"subagent"` 的事件——其 `model` 字段是权威记录。
 - **命令显示形式**：本插件命令在客户端 `/` 菜单里显示为
   `$switchman-setup`（`$` 前缀 + 文件名，不带插件名前缀，不存在双重
@@ -121,14 +127,14 @@ node --test "test/*.test.mjs"    # 契约测试
 ## 架构
 
 ```
-templates/agents/       ← 六壳正本（随插件分发；拷贝到 ~/.zcode/agents）
-src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / handover / state
-hooks/                  ← SessionStart / PreToolUse(Agent|Task) / PostToolUseFailure
+templates/agents/       ← 六壳正本（随插件分发；会话启动自动装配到 ~/.zcode/agents）
+src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / handover / state / provision
+hooks/                  ← SessionStart（装配 + 横幅）/ PreToolUse(Agent|Task) / PostToolUseFailure
 scripts/discover-models.mjs ← 枚举 ZCode 已配置模型（供 /switchman-setup）
 commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
 skills/switchman-routing/   ← 派发协议（六档、ROUTE_META、失败处理）
 assets/delegation-template.md ← DELEGATION_V1 委派 prompt 模板
-test/                   ← 契约测试（meta fixtures、编队、hook 冒烟）
+test/                   ← 契约测试（meta fixtures、编队、装配、hook 冒烟）
 ```
 
 沿袭源项目的设计规则：
@@ -148,6 +154,9 @@ test/                   ← 契约测试（meta fixtures、编队、hook 冒烟�
    `failures.log`（JSONL），以及项目级 `.switchman/handover.json` 指针
    （由 `/switchman-handover` 写入、SessionStart hook 一次性消费）。
 4. **deny 附言**——每次拒绝都说明应改用哪个档位/壳。
+5. **model 行归属**——壳正文归模板所有（每次会话启动由
+   `src/lib/provision.mjs` 自动同步）；`model:` 行归用户所有，同步时原样
+   保留。模板默认 `model: inherit`；插件永不挑选、校验、评判模型。
 
 ## 路线图
 

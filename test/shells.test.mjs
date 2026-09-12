@@ -67,13 +67,14 @@ test("shellInfo / laneOfShell", () => {
   assert.equal(laneOfShell("nope"), null);
 });
 
-test("templates ship all six shells with a name matching the file", () => {
+test("templates ship all six shells: name matches file, default model is inherit", () => {
   for (const name of Object.keys(SHELLS)) {
     const p = path.join(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
     const text = fs.readFileSync(p, "utf8");
     assert.ok(text.startsWith("---\n"), `${name}: frontmatter`);
     assert.match(text, new RegExp(`^name: "${name}"$`, "m"), `${name}: name field`);
-    assert.ok(!/^model:/m.test(text), `${name}: no model line in template (binding is per-user)`);
+    assert.match(text, /^model: inherit$/m, `${name}: plugin default is inherit`);
+    assert.ok(!/^model:[^\n]*custom:/m.test(text), `${name}: no pinned model in template`);
   }
 });
 
@@ -121,15 +122,27 @@ test("hook smoke: breaker-down shell is denied", () => {
   fs.rmSync(statePaths.routing(), { force: true });
 });
 
-test("hook smoke: session-start banner renders the fleet lines", () => {
+test("hook smoke: session-start auto-provisions the fleet and renders the banner", () => {
   const doc = JSON.parse(runHook("session-start.mjs", {}).stdout);
   const msg = doc.hookSpecificOutput.additionalContext;
   assert.match(msg, /\[Shells\] economy=switchman-economy\(ro\)/);
-  assert.match(msg, /\[Binding\] 0\/6 shells model-bound/);
+  assert.match(msg, /\[Sync\] shells auto-provisioned \(created: switchman-/);
+  assert.match(msg, /\[Binding\] 6\/6 shells model-bound/); // provisioned all-inherit
   assert.match(msg, /\[Breaker\] down: none/);
   assert.match(msg, /\[Workspace\] intermediate artifacts → <project>/);
   assert.doesNotMatch(msg, /\[Session\]/); // no session id in the payload
   assert.doesNotMatch(msg, /\[Handover\]/); // no pointer anywhere
+  for (const name of Object.keys(SHELLS)) {
+    const text = fs.readFileSync(path.join(agentsDir, `${name}.md`), "utf8");
+    assert.match(text, /^model: inherit$/m, `${name}: created with the inherit default`);
+  }
+});
+
+test("hook smoke: provisioning is idempotent — no [Sync] line when already in sync", () => {
+  const msg = JSON.parse(runHook("session-start.mjs", {}).stdout)
+    .hookSpecificOutput.additionalContext;
+  assert.doesNotMatch(msg, /\[Sync\]/);
+  assert.match(msg, /\[Binding\] 6\/6 shells model-bound/);
 });
 
 test("hook smoke: banner carries the session id when the runtime passes one", () => {
@@ -155,15 +168,25 @@ test("hook smoke: pending handover pointer is injected once and consumed", () =>
   fs.rmSync(project, { recursive: true, force: true });
 });
 
-test("hook smoke: session-start counts a bound model", () => {
-  fs.writeFileSync(
-    path.join(agentsDir, "switchman-main.md"),
-    '---\nname: "switchman-main"\nmodel: "custom:provider:model-x"\n---\nbody\n',
-    "utf8",
+test("hook smoke: a pinned model line survives the auto-provision sync", () => {
+  const target = path.join(agentsDir, "switchman-main.md");
+  const tpl = fs.readFileSync(
+    path.join(PLUGIN_ROOT, "templates", "agents", "switchman-main.md"), "utf8",
   );
-  const msg = JSON.parse(runHook("session-start.mjs", {}).stdout).hookSpecificOutput.additionalContext;
-  assert.match(msg, /\[Binding\] 1\/6/);
-  fs.rmSync(path.join(agentsDir, "switchman-main.md"), { force: true });
+  // stale body (older template without the workspace rule) + a user-pinned model
+  const stale = tpl
+    .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"')
+    .replace(/\n6\. 中间产物写入项目根[^\n]*\n?$/, "\n");
+  fs.writeFileSync(target, stale, "utf8");
+
+  const msg = JSON.parse(runHook("session-start.mjs", {}).stdout)
+    .hookSpecificOutput.additionalContext;
+  assert.match(msg, /\[Sync\] shells auto-provisioned \(updated: switchman-main\)/);
+  assert.match(msg, /\[Binding\] 6\/6 shells model-bound/);
+
+  const synced = fs.readFileSync(target, "utf8");
+  assert.match(synced, /^model: "custom:provider:model-x"$/m, "model line preserved");
+  assert.match(synced, /^6\. 中间产物写入项目根/m, "body refreshed to current template");
 });
 
 test("hook smoke: two failed dispatches trip the breaker", () => {

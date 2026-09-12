@@ -1,11 +1,11 @@
 {
   "name": "zcode-switchman",
-  "description": "Fixed six-lane sub-agent fleet for ZCode: role-class shells with user-bound models, ROUTE_META dispatch discipline, mismatch guard, and a failure breaker.",
+  "description": "Fixed six-lane sub-agent fleet for ZCode: shells self-provision at session start (bodies auto-sync, default model: inherit), model per shell is a user-set frontmatter line, ROUTE_META dispatch discipline, mismatch guard, and a failure breaker.",
   "description_i18n": {
-    "en": "Fixed six-lane sub-agent fleet for ZCode: role-class shells with user-bound models, ROUTE_META dispatch discipline, mismatch guard, and a failure breaker.",
-    "zh-CN": "ZCode 固定六档子代理编队：职责壳 + 用户自绑模型（一行 frontmatter，换模型不改壳名），ROUTE_META 派发纪律、错配拦截与失败熔断。"
+    "en": "Fixed six-lane sub-agent fleet for ZCode: shells self-provision at session start (bodies auto-sync, default model: inherit), model per shell is a user-set frontmatter line, ROUTE_META dispatch discipline, mismatch guard, and a failure breaker.",
+    "zh-CN": "ZCode 固定六档子代理编队：会话启动自动装配六壳（正文自动同步、默认 model: inherit），模型由用户一行 frontmatter 自设；ROUTE_META 派发纪律、错配拦截与失败熔断。"
   },
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "mrzturn",
     "url": "https://github.com/mrzturn"

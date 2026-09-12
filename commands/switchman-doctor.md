@@ -12,14 +12,17 @@ not fix anything without asking; print a summary table at the end.
    silently does nothing), so this is checked first.
 2. **Templates**: `${ZCODE_PLUGIN_ROOT}/templates/agents/` contains the six
    `switchman-*.md` files.
-3. **Shells installed**: the user shell directory
+3. **Shells installed & synced**: the user shell directory
    (`$ZCODE_SWITCHMAN_AGENTS_DIR`, default `~/.zcode/agents`) contains all six
-   `switchman-*.md` files. Missing ones can be installed from templates.
+   `switchman-*.md` files, and each body matches `templates/agents/` with only
+   the `model:` line differing. The SessionStart hook auto-provisions both on
+   every session start (missing shells are created, stale bodies refreshed,
+   the user's `model:` line preserved), so a missing or stale shell self-heals
+   on the next session — report it as degraded, don't hand-fix it.
 4. **Model bindings**: parse each installed shell's frontmatter for a
-   `model:` line. Bound = ok; unbound = degraded (that shell follows the
-   session default model). The literal value `inherit` counts as bound — the
-   shell explicitly follows the default model. An empty `model:` value is a
-   failed check.
+   `model:` line. `inherit` (the plugin default) counts as bound — the shell
+   follows the session default model; a pinned id is the user's own choice.
+   An empty `model:` value is a failed check.
 5. **Breaker state**: read `$ZCODE_SWITCHMAN_STATE/routing.json` — list
    `down_agents` with their expiry; also report the last 5 lines of
    `failures.log` if present (evidence of recent dispatch failures).

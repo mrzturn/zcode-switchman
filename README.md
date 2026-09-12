@@ -2,14 +2,16 @@
 
 A [ZCode](https://zcode.dev) plugin that gives you a **fixed six-lane
 sub-agent fleet**: six role-class shells, one per lane, with the model behind
-each shell bound by a single frontmatter line that *you* control. Shell names
+each shell set by a single frontmatter line that *you* control. Shell names
 never change — swapping a model never touches your prompts, docs, or habits.
 
 The ported-and-simplified design of
 [opencode-switchman](https://github.com/mrzturn/opencode-switchman): instead
 of runtime model switching (which ZCode's static sub-agent registry does not
-support), the fleet is fixed and the **model binding is a per-user edit** —
-made by hand in `~/.zcode/agents` or conversationally via `/switchman-setup`.
+support), the fleet is fixed and the **model is a per-user edit** — the
+plugin ships `model: inherit` everywhere (every shell follows ZCode's default
+model), and pinning a model is a one-line manual edit in `~/.zcode/agents` or
+a conversational one via `/switchman-setup`.
 
 > **Sanitized by design** — this repository ships generic templates and code
 > only. No real provider, plan, model binding, or quota rule of any individual
@@ -28,21 +30,25 @@ made by hand in `~/.zcode/agents` or conversationally via `/switchman-setup`.
 
 - A shell binds only *role class × tool whitelist × thought level*; the role
   is assigned dynamically by each dispatch prompt (DELEGATION_V1).
-- A shell **without** a bound model follows the session default model — the
-  plugin works out of the box; binding models adds real multi-model division
-  of labor. Models are never inspected or judged by the plugin: whatever you
-  bind (or inherit) is what runs.
+- A shell binds only *role class × tool whitelist × thought level*; the role
+  is assigned dynamically by each dispatch prompt (DELEGATION_V1).
+- Every shell defaults to `model: inherit` — the fleet follows the session
+  default model and works out of the box; pinning models per lane adds real
+  multi-model division of labor. Models are never inspected or judged by the
+  plugin: whatever you pin (or inherit) is what runs.
 
 ## Features
 
-- **Six fixed shells** — shipped as templates, installed to
-  `~/.zcode/agents/` (they show up in Settings → Subagents like any other
-  sub-agent).
-- **Model binding = one line** — `model: "..."`, or `model: inherit` to
-  follow the default model, in the shell's frontmatter; `/switchman-setup`
-  writes it for you (proposing `inherit` by default) and uses
-  `scripts/discover-models.mjs` when you choose to pin a model; API keys are
-  never read or printed.
+- **Self-provisioning fleet** — the SessionStart hook installs the six shells
+  into `~/.zcode/agents/` at every session start: missing shells are created
+  from templates, stale bodies are synced to the current templates (plugin
+  updates propagate with no user action), and each shell's `model:` line is
+  preserved verbatim. Nothing to run after install — start a session.
+- **Model = one user-owned line** — templates ship `model: inherit`; pinning
+  is a one-line edit (`model: "..."`) in the shell's frontmatter, by hand or
+  conversationally via `/switchman-setup` (which uses
+  `scripts/discover-models.mjs` when you choose to pin). API keys are never
+  read or printed.
 - **Dispatch gate** (PreToolUse hook) — three gates per shell dispatch:
   failure breaker → `ROUTE_META` validation → semantics (rw tasks cannot go
   to read-only shells, image tasks only to the vision shell). Non-switchman
@@ -53,17 +59,17 @@ made by hand in `~/.zcode/agents` or conversationally via `/switchman-setup`.
   10-min auto-recovering breaker on that shell; not-found errors stay scoped
   to the requested name so typos never poison healthy shells.
 - **Session banner** (SessionStart hook) — `[Session] / [Shells] / [Binding] /
-  [Breaker] / [Workspace]` context injected at every session start (plus a
-  one-shot `[Handover]` line when a handover is pending).
+  [Sync] / [Breaker] / [Workspace]` context injected at every session start
+  (`[Sync]` appears only when provisioning changed something; a one-shot
+  `[Handover]` line is added when a handover is pending).
 - **Project workspace `.switchman/`** — all intermediate artifacts (shell
   outputs on disk, scratch analysis, handover docs) live under the project
   root's `.switchman/`, never scattered in source directories; the rule is
   carried by the banner, the routing skill, the shell templates, and the
   delegation template.
-- **Commands & skill** — `/switchman-setup` (conversational first-run
-  binding), `/switchman-doctor`, `/switchman-handover` (summarize → doc →
-  fork backup → compact → continue), and the `switchman-routing`
-  dispatch-protocol skill.
+- **Commands & skill** — `/switchman-setup` (conversational model rebinding),
+  `/switchman-doctor`, `/switchman-handover` (summarize → doc → fork backup →
+  compact → continue), and the `switchman-routing` dispatch-protocol skill.
 
 ## Quick start
 
@@ -75,18 +81,19 @@ checks this first.
 ```bash
 # 1. Install the plugin (marketplace, or point ZCode at this directory)
 
-# 2. Install the shells and bind models — pick one:
-#    a) conversational (discovers your ZCode models, asks per lane, writes
-#       the files for you):
-/switchman-setup
-#
-#    b) manual:
-mkdir -p ~/.zcode/agents
-cp <plugin-root>/templates/agents/switchman-*.md ~/.zcode/agents/
-$EDITOR ~/.zcode/agents/switchman-main.md   # add:  model: "your-model-id"
-                                            # or:   model: inherit
+# 2. Start a ZCode session — that's it. The SessionStart hook auto-provisions
+#    the six shells into ~/.zcode/agents/ with model: inherit (they show up
+#    in Settings → Subagents; if the current session predates provisioning,
+#    the next one lists them).
 
-# 3. Start a new ZCode session — the banner appears at session start
+# 3. Optional — pin models per lane (the default stays inherit):
+/switchman-setup                          # conversational: discovers your
+#                                         # ZCode models, edits the line
+#   or by hand:
+$EDITOR ~/.zcode/agents/switchman-main.md # set:  model: "your-model-id"
+#                                         # or:   model: inherit
+
+# 4. Start a new session — the banner appears at session start
 ```
 
 State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`);
@@ -97,8 +104,8 @@ Notes from dispatch-level acceptance testing:
 - **Shell files are snapshotted at session start** — editing `model:`
   (or tools/description) in `~/.zcode/agents/` does **not** hot-reload;
   start a new ZCode session to pick up the change.
-- **Unbound shells follow the session default model.** To check what a
-  dispatch actually ran on, read the ZCode log
+- **Shells default to `model: inherit`** (follow the session default model).
+  To check what a dispatch actually ran on, read the ZCode log
   (`~/.zcode/cli/log/zcode-<date>.jsonl`) and look for events with
   `"querySource":"subagent"` — their `model` field is the authoritative
   record.
@@ -141,14 +148,14 @@ node --test "test/*.test.mjs"    # contract tests
 ## Architecture
 
 ```
-templates/agents/       ← the six shells (shipped; copied to ~/.zcode/agents)
-src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, handover, state
-hooks/                  ← SessionStart / PreToolUse(Agent|Task) / PostToolUseFailure
+templates/agents/       ← the six shells (shipped; self-provisioned to ~/.zcode/agents)
+src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, handover, state, provision
+hooks/                  ← SessionStart (provision + banner) / PreToolUse(Agent|Task) / PostToolUseFailure
 scripts/discover-models.mjs ← enumerate ZCode-configured models for /switchman-setup
 commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
 skills/switchman-routing/   ← dispatch protocol (lanes, ROUTE_META, failure handling)
 assets/delegation-template.md ← the DELEGATION_V1 dispatch prompt template
-test/                   ← contract tests (meta fixtures, fleet, hook smoke)
+test/                   ← contract tests (meta fixtures, fleet, provision, hook smoke)
 ```
 
 Design rules inherited from the source project:
@@ -174,6 +181,10 @@ Design rules inherited from the source project:
    `.switchman/handover.json` pointer (written by `/switchman-handover`,
    consumed once by the SessionStart hook).
 4. **Deny appendix** — every denial states the lane/shell to use instead.
+5. **Model-line ownership** — shell bodies are template-owned (auto-synced at
+   session start by `src/lib/provision.mjs`); the `model:` line is user-owned
+   and preserved verbatim across syncs. Templates ship `model: inherit`; the
+   plugin never picks, validates, or judges models.
 
 ## Roadmap
 

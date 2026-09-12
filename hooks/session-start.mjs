@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * SessionStart hook: render the fleet banner and hand pending handover to a
- * fresh context. Fail-open — any error only touches stderr, the session always
- * starts.
+ * SessionStart hook: auto-provision the fleet, render the banner, and hand
+ * pending handover to a fresh context. Fail-open — any error only touches
+ * stderr, the session always starts.
  *
  * Banner contract (consumed by the switchman-routing skill):
  *   [Session]   current session id (omitted when the runtime does not pass one)
  *   [Shells]    the six fixed-lane shells with capability (+image for vision)
- *   [Binding]   how many shells carry a user-bound model; unbound shells
- *               follow the session default model
+ *   [Binding]   how many shells carry a model line; shells without one
+ *               (and `model: inherit`) follow the session default model
+ *   [Sync]      auto-provision report, only when something changed this
+ *               session (created/updated shells; user model lines preserved)
  *   [Breaker]   currently down shells, if any
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
  *   [Handover]  pending handover doc, injected once, then the pointer is
@@ -17,9 +19,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
 import { SHELLS } from "../src/lib/shells.mjs";
 import { readPointer, clearPointer } from "../src/lib/handover.mjs";
+import { provisionShells } from "../src/lib/provision.mjs";
+
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function agentsDir() {
   return process.env.ZCODE_SWITCHMAN_AGENTS_DIR ||
@@ -66,7 +72,30 @@ function bindingLine() {
   const note = unbound.length
     ? `unbound (${unbound.join(", ")}) follow the session default model`
     : "all shells model-bound";
-  return `[Binding] ${bound}/${Object.keys(SHELLS).length} shells model-bound; ${note} (bind: /switchman-setup)`;
+  return `[Binding] ${bound}/${Object.keys(SHELLS).length} shells model-bound; ${note} (pin a model: /switchman-setup)`;
+}
+
+/** Provision the fleet; returns a one-line report, or null when in sync. */
+function syncLine() {
+  let report;
+  try {
+    report = provisionShells({ pluginRoot: PLUGIN_ROOT, agentsDir: agentsDir() });
+  } catch (err) {
+    process.stderr.write(`[zcode-switchman] provision fail-open: ${err}\n`);
+    return "[Sync] shells auto-provision failed (see stderr); dispatching continues";
+  }
+  const changed = [...report.created, ...report.updated];
+  if (!changed.length && !report.failed.length) return null;
+  const parts = [];
+  if (report.created.length) parts.push(`created: ${report.created.join(", ")}`);
+  if (report.updated.length) parts.push(`updated: ${report.updated.join(", ")}`);
+  if (report.failed.length) {
+    parts.push(`failed: ${report.failed.map((f) => f.name).join(", ")}`);
+    for (const f of report.failed) {
+      process.stderr.write(`[zcode-switchman] provision ${f.name}: ${f.error}\n`);
+    }
+  }
+  return `[Sync] shells auto-provisioned (${parts.join("; ")}); user model lines preserved`;
 }
 
 function breakerLine(routing) {
@@ -104,9 +133,14 @@ try {
   const routing = loadRouting();
   try { cleanExpired(routing); } catch { /* fail-open */ }
 
+  // provision first so the banner (Binding counts) reflects post-sync state
+  const sync = syncLine();
+
   const lines = [];
   if (sessionId) lines.push(`[Session] ${sessionId}`);
-  lines.push(shellLine(), bindingLine(), breakerLine(routing), workspaceLine());
+  lines.push(shellLine(), bindingLine());
+  if (sync) lines.push(sync);
+  lines.push(breakerLine(routing), workspaceLine());
   const handover = handoverLine(projectDir);
   if (handover) lines.push(handover);
 
