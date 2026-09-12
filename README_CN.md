@@ -74,6 +74,17 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 存放 `shells.json`（family 表，供复审闸使用）、`routing.json`（熔断）与
 `failures.log`。
 
+派发级实装验收得出的三条结论：
+
+- **壳文件在会话启动时快照**——改 `~/.zcode/agents/` 里的 `model:`
+  （或 tools/description）**不会**热生效；需重开一个 ZCode 会话才加载。
+- **未绑定的壳跟随会话默认模型。** 要查某次派发实际跑在哪个模型上，读
+  ZCode 日志（`~/.zcode/cli/log/zcode-<日期>.jsonl`），找带
+  `"querySource":"subagent"` 的事件——其 `model` 字段是权威记录。
+- **命令显示形式**：本插件命令在客户端 `/` 菜单里显示为
+  `$switchman-setup`（`$` 前缀 + 文件名，不带插件名前缀，不存在双重
+  前缀问题）。
+
 ### 验证
 
 ```bash

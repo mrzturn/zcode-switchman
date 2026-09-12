@@ -90,7 +90,9 @@ Checklist for the user:
 - the new session's banner shows `[Shells] / [Binding] / [Breaker]`;
 - run `/switchman-doctor` to verify;
 - rebinding later = re-run `/switchman-setup` or edit the `model:` line in
-  `~/.zcode/agents/<shell>.md` — shell names never change.
+  `~/.zcode/agents/<shell>.md` — then **start a new session**: agent files
+  are snapshotted at session start and edits do not hot-reload. Shell names
+  never change.
 
 ## Rules
 

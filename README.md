@@ -84,6 +84,20 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`);
 it holds `shells.json` (family map for the review gate), `routing.json`
 (breaker), and `failures.log`.
 
+Notes from dispatch-level acceptance testing:
+
+- **Shell files are snapshotted at session start** — editing `model:`
+  (or tools/description) in `~/.zcode/agents/` does **not** hot-reload;
+  start a new ZCode session to pick up the change.
+- **Unbound shells follow the session default model.** To check what a
+  dispatch actually ran on, read the ZCode log
+  (`~/.zcode/cli/log/zcode-<date>.jsonl`) and look for events with
+  `"querySource":"subagent"` — their `model` field is the authoritative
+  record.
+- **Command display**: plugin commands appear in the client `/` menu as
+  `$switchman-setup` (a `$` prefix plus the file name, no plugin-name
+  prefix — there is no double-prefix problem).
+
 ### Verify
 
 ```bash
