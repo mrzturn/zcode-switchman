@@ -1,5 +1,6 @@
 /**
  * breaker.test.mjs — failure accounting and circuit breaker over a sandbox dir.
+ * Fixed fleet: the breaker key is the requested shell name itself.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -7,22 +8,15 @@ import path from "node:path";
 
 const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-breaker-"));
 process.env.ZCODE_SWITCHMAN_STATE = stateDir;
-process.env.ZCODE_SWITCHMAN_CONFIG = new URL("../config/matrix.example.json", import.meta.url).pathname;
 
 const {
-  extractSubagent, failureReason, isNotFound, breakerKeys,
+  extractSubagent, failureReason, isNotFound,
   loadRouting, cleanExpired, agentDown, recentFailureCount, appendFailure,
   tripBreaker, FAIL_THRESHOLD,
 } = await import("../src/lib/breaker.mjs");
 const { writeJsonAtomic } = await import("../src/lib/state.mjs");
 import { test } from "node:test";
 import assert from "node:assert/strict";
-
-const REGISTRY = {
-  shells: {
-    "alpha-mx-model-a-high": { status: "enabled", pool: "alpha", combo_key: "alpha|model-a|high" },
-  },
-};
 
 test("extractSubagent reads common field spellings", () => {
   assert.equal(extractSubagent({ subagent_type: "a" }), "a");
@@ -47,33 +41,20 @@ test("not-found detection", () => {
   assert.ok(!isNotFound("connection reset"));
 });
 
-test("breakerKeys: not-found stays scoped to the requested name", () => {
-  const [key, shell, combo] = breakerKeys("typo-agent", "agent not found", REGISTRY.shells);
-  assert.equal(key, "typo-agent");
-  assert.equal(shell, null);
-  assert.equal(combo, null);
-});
-
-test("breakerKeys: registered shell maps to combo_key", () => {
-  const [key, shell, combo] = breakerKeys("alpha-mx-model-a-high", "timeout", REGISTRY.shells);
-  assert.equal(key, "alpha|model-a|high");
-  assert.equal(shell, "alpha-mx-model-a-high");
-  assert.equal(combo, "alpha|model-a|high");
-});
-
-test("two failures within window trip the breaker; agentDown hits name and combo", () => {
+test("two failures within window trip the breaker; agentDown hits the name only", () => {
   fs.rmSync(path.join(stateDir, "failures.log"), { force: true });
+  fs.rmSync(path.join(stateDir, "routing.json"), { force: true });
   const now = Date.now() / 1000;
   for (let i = 0; i < FAIL_THRESHOLD; i++) {
-    appendFailure({ agent: "alpha-mx-model-a-high", key: "alpha|model-a|high", reason: "boom", ts: now });
+    appendFailure({ agent: "switchman-main", key: "switchman-main", reason: "boom", ts: now });
   }
-  assert.equal(recentFailureCount("alpha|model-a|high", now), 2);
+  assert.equal(recentFailureCount("switchman-main", now), 2);
   const routing = loadRouting();
-  tripBreaker("alpha|model-a|high", "2+ failures within window: boom", routing);
+  tripBreaker("switchman-main", `${FAIL_THRESHOLD}+ failures within window: boom`, routing);
   const reloaded = loadRouting();
-  assert.ok(agentDown("alpha-mx-model-a-high", reloaded, REGISTRY.shells)); // via combo
-  assert.ok(agentDown("alpha|model-a|high", reloaded, REGISTRY.shells));
-  assert.ok(!agentDown("other-agent", reloaded, REGISTRY.shells));
+  assert.ok(agentDown("switchman-main", reloaded));
+  assert.ok(!agentDown("switchman-hard", reloaded)); // sibling shell unaffected
+  assert.ok(!agentDown("general-purpose", reloaded)); // foreign agents unaffected
 });
 
 test("count ignores other keys and stale timestamps", () => {

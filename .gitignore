@@ -1,10 +1,7 @@
 # Private porting/handover notes — never publish
 docs/
 
-# Generated per-user agent shells (contain personal model bindings)
-agents/*.md
-
-# User-local runtime state (registries, quota caches, failure logs)
+# User-local runtime state (breaker, failure log, family map, handovers)
 state/
 *.log
 

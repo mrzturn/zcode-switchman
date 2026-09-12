@@ -1,131 +1,139 @@
 # zcode-switchman
 
-A [ZCode](https://zcode.dev) plugin that turns multi-model sub-agent dispatch
-into a deterministic, policy-driven router — the ZCode port of
-[opencode-switchman](https://github.com/mrzturn/opencode-switchman)'s
-six-lane shell-matrix design.
+A [ZCode](https://zcode.dev) plugin that gives you a **fixed six-lane
+sub-agent fleet**: six role-class shells, one per lane, with the model behind
+each shell bound by a single frontmatter line that *you* control. Shell names
+never change — swapping a model never touches your prompts, docs, or habits.
 
-**核心思想（换壳不换脑）**: sub-agent **shells** (`<pool>-mx-<model>-<effort>`)
-bind only *model × thought-level × tool whitelist*; the role is assigned
-dynamically by each dispatch prompt. A set of hooks + an MCP server route
-dispatches through six lanes, enforce a `ROUTE_META` contract on every shell
-dispatch, trip circuit breakers on repeated failures, and respect pool quota.
+The ported-and-simplified design of
+[opencode-switchman](https://github.com/mrzturn/opencode-switchman): instead
+of runtime model switching (which ZCode's static sub-agent registry does not
+support), the fleet is fixed and the **model binding is a per-user edit** —
+made by hand in `~/.zcode/agents` or conversationally via `/switchman-setup`.
 
-> **Sanitized by design** — this repository ships a generic engine plus a
-> placeholder example config. No real provider, plan, model binding, or quota
-> rule of any individual setup is committed. Everything deployment-specific
-> lives in your local `config/matrix.json` (gitignored) and your state dir.
+> **Sanitized by design** — this repository ships generic templates and code
+> only. No real provider, plan, model binding, or quota rule of any individual
+> setup is committed. Your bindings live in your home directory, never here.
+
+## The fleet
+
+| lane | shell | capability | effort | use for |
+|---|---|---|---|---|
+| economy | `switchman-economy` | ro | low | bulk light retrieval / summarization / triage |
+| mechanical | `switchman-mechanical` | rw | low | reformat / move / data chores |
+| main | `switchman-main` | rw | medium | day-to-day implementation workhorse |
+| hard | `switchman-hard` | rw | high | deep design / hard problems |
+| vision | `switchman-vision` | ro (image) | medium | image understanding / screenshot work |
+| review | `switchman-review` | ro | high | review-only second pair of eyes |
+
+- A shell binds only *role class × tool whitelist × thought level*; the role
+  is assigned dynamically by each dispatch prompt (DELEGATION_V1).
+- A shell **without** a bound model follows the session default model — the
+  plugin works out of the box; binding models adds real multi-model division
+  of labor.
+- Reviews are hetero-family by design: the review shell should run a model
+  from a different family than the producer.
 
 ## Features
 
-- **Six-lane shell matrix** — `economy / mechanical / main / hard / vision / review`
-  candidate chains, computed from your config and a runtime shell registry.
-- **Dispatch gate** (PreToolUse hook) — six gates per shell dispatch:
-  registry status → probe matrix → breaker → pool exhaustion → `ROUTE_META`
-  validation → semantic checks (hetero-family review, ro/rw, modality,
-  paid-pool chain-tail). Denials carry a live re-computed first candidate.
+- **Six fixed shells** — shipped as templates, installed to
+  `~/.zcode/agents/` (they show up in Settings → Subagents like any other
+  sub-agent).
+- **Model binding = one line** — `model: "..."` in the shell's frontmatter;
+  `/switchman-setup` writes it for you after discovering your ZCode models
+  (`scripts/discover-models.mjs`; API keys are never read or printed).
+- **Dispatch gate** (PreToolUse hook) — three gates per shell dispatch:
+  failure breaker → `ROUTE_META` validation → semantics (rw tasks cannot go
+  to read-only shells, image tasks only to the vision shell, same-family
+  reviews denied). Non-switchman agents pass untouched.
 - **ROUTE_META contract** — one metadata line in every shell dispatch prompt:
-  `ROUTE_META {"lane":"main","role":"programmer","producer_family":"alpha","capability":"rw","modality":"text","source":"auto"}`
+  `ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}`
 - **Circuit breaker** (PostToolUseFailure hook) — 2 failures in 10 min trips a
-  10-min auto-recovering breaker; not-found errors stay scoped to the
-  requested name so typos never poison healthy shells.
-- **Session banner** (SessionStart hook) — `[Route] / [Quota] / [Limits]`
+  10-min auto-recovering breaker on that shell; not-found errors stay scoped
+  to the requested name so typos never poison healthy shells.
+- **Session banner** (SessionStart hook) — `[Shells] / [Binding] / [Breaker]`
   context injected at session start.
-- **Routing MCP server** — `route_query`, `registry_list`, `breaker_status`.
-- **CLI** — `scripts/route-cli.mjs` (deterministic JSON output) and
-  `scripts/gen-shells.mjs` (generates `agents/*.md` + registry from config).
-- **Commands & skill** — `/switchman-setup` (conversational first-run configuration
-  with model discovery), `/switchman-handover`, `/switchman-doctor`, and the `switchman-routing`
+- **Commands & skill** — `/switchman-setup` (conversational first-run binding),
+  `/switchman-doctor`, `/switchman-handover`, and the `switchman-routing`
   dispatch-protocol skill.
 
 ## Quick start
 
-**Prerequisite**: Node.js ≥ 18 on your `PATH`. Plugin hooks and the MCP server
-run as `node` child processes (same as the official ZCode plugin templates);
-without node they fail open and the plugin silently does nothing — `/switchman-doctor`
+**Prerequisite**: Node.js ≥ 18 on your `PATH`. Plugin hooks run as `node`
+child processes (same as the official ZCode plugin templates); without node
+they fail open and the plugin silently does nothing — `/switchman-doctor`
 checks this first.
 
 ```bash
 # 1. Install the plugin (marketplace, or point ZCode at this directory)
 
-# 2. Build your shell matrix — pick one:
-#    a) conversational setup (discovers your ZCode models, asks pool/lane
-#       questions, writes config/matrix.json for you):
+# 2. Install the shells and bind models — pick one:
+#    a) conversational (discovers your ZCode models, asks per lane, writes
+#       the files for you):
 /switchman-setup
 #
 #    b) manual:
-cp config/matrix.example.json config/matrix.json
-$EDITOR config/matrix.json     # fill in pools, model bindings, lanes
+mkdir -p ~/.zcode/agents
+cp <plugin-root>/templates/agents/switchman-*.md ~/.zcode/agents/
+$EDITOR ~/.zcode/agents/switchman-main.md   # add:  model: "your-model-id"
 
-# 3. Generate agent shells + the registry
-node scripts/gen-shells.mjs
-
-# 4. Restart ZCode — the banner should appear at session start
+# 3. Start a new ZCode session — the banner appears at session start
 ```
 
-State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`).
+State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`);
+it holds `shells.json` (family map for the review gate), `routing.json`
+(breaker), and `failures.log`.
 
 ### Verify
 
 ```bash
-node scripts/route-cli.mjs --all          # six lane chains as JSON
-node scripts/gen-shells.mjs --check       # config ↔ registry drift
-node --test "test/*.test.mjs"             # contract tests
+/switchman-doctor                # in ZCode: 8-point self-check
+node --test "test/*.test.mjs"    # contract tests
 ```
-
-## Configuration (`config/matrix.json`)
-
-| Key | Meaning |
-|---|---|
-| `pools` | Named provider pools. `paid: true` marks pay-as-you-go pools (chain-tail only under `source=auto`). `quotaFile` names a cache file in the state dir: `{"status":"ok","fetched_at":<ts>,"scopes":{"<scope>":{"used_pct":0-100}}}`. |
-| `families` | Legal `producer_family` values (real model families — **not** pool names). |
-| `shells` | Shell definitions: `name` (`<pool>-mx-<model>-<effort>`), `pool`, `family`, `model`, `thoughtLevel`, `capability` (`ro`/`rw`), `modalities`. |
-| `lanes` | Lane → ordered shell names. Order is the quality-tier preference; paid pools are forced chain-tail at runtime. |
-| `roleRouting` | role → pool fallback chain (used by docs/tooling; lanes are the operative chains). |
-
-Quota cache files are written by your own refresh scripts (the plugin itself
-never touches the network in hooks). Any pool at 100% used is hard-blocked —
-the only quota gate; 80%+ merely shortens cache TTL.
 
 ## Architecture
 
 ```
-config/matrix.json      ← your private shell matrix (gitignored)
-src/lib/*.mjs           ← shared core: config, meta, lane, quota, breaker, state
+templates/agents/       ← the six shells (shipped; copied to ~/.zcode/agents)
+src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, state
 hooks/                  ← SessionStart / PreToolUse(Agent|Task) / PostToolUseFailure
-mcp/routing-server.mjs  ← route_query / registry_list / breaker_status
-scripts/                ← gen-shells.mjs, route-cli.mjs
-agents/                 ← generated shells (gitignored — personal model bindings)
-test/                   ← contract tests (meta fixtures, lane gates, breaker)
+scripts/discover-models.mjs ← enumerate ZCode-configured models for /switchman-setup
+commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
+skills/switchman-routing/   ← dispatch protocol (lanes, ROUTE_META, failure handling)
+assets/delegation-template.md ← the DELEGATION_V1 dispatch prompt template
+test/                   ← contract tests (meta fixtures, fleet, hook smoke)
 ```
 
 Design rules inherited from the source project:
 
-- **fail-open everywhere** — a broken router must never block work; degraded
-  modes are marked (`status: "ok*"`) and logged to stderr.
-- **single implementation source** — hooks, MCP, and CLI all call
-  `src/lib/lane.mjs`; chains can never drift between entry points.
-- **hooks stay light** — local JSON reads only, well under the 3 s budget;
-  anything heavy belongs to refresh scripts / MCP.
+- **fail-open everywhere** — a broken gate must never block work; errors go
+  to stderr and the dispatch proceeds.
+- **single implementation source** — hooks all call `src/lib/*`; the gate
+  semantics can never drift between entry points.
+- **hooks stay light** — local file reads only, no network, well under the
+  3 s budget.
 
 ## Contracts (do not break casually)
 
-1. **ROUTE_META line** — six whitelisted keys, lowercased values, parsed within
-   the first 4000 chars; `role` / `capability` / `source` are required safety
-   fields. Behavior is pinned by `test/meta.test.mjs`.
-2. **State files** — `shell-registry.json` (runtime shell truth),
-   `routing.json` (`down_agents` + `down_expiry`), `route-state.json` (banner
-   snapshot), `failures.log` (JSONL), `<pool>-quota.json` (caches).
-3. **deny appendix** — every denial carries the live first candidate of the
-   lane so the main model can re-dispatch without recomputing.
+1. **ROUTE_META line** — six whitelisted keys, lowercased values, parsed
+   within the first 4000 chars; `role` / `capability` / `source` are required
+   safety fields; `producer_family` is a free-form lowercase token. Behavior
+   is pinned by `test/meta.test.mjs`.
+2. **Shell names** — `switchman-<lane>` is a stable identifier: prompts,
+   docs, deny hints, and the banner all reference it. Never rename a shell in
+   a minor release.
+3. **State files** — `shells.json` (name → `{family}`), `routing.json`
+   (`down_agents` + `down_expiry`), `failures.log` (JSONL).
+4. **Deny appendix** — every denial states the lane/shell to use instead.
 
 ## Roadmap
 
-- [ ] Probe integration (latency matrix for `urgency=immediate` reordering)
-- [ ] Watermark-aware in-chain reordering (surplus/strained pool states)
-- [ ] Context-watermeter gates (soft/hard session budget)
+- [ ] Per-shell override knobs in userConfig (state dir, template dir)
+- [ ] Dispatch accounting (PostToolUse ledger: lane, latency, outcome)
+- [ ] Probe matrix integration (optional, opt-in)
+- [ ] Multi-pool lane chains — the full opencode-switchman router as an
+      opt-in "advanced" mode
 - [ ] Image-relay for non-vision main models
-- [ ] `/poolConfig`, `/modelRank` config commands
 
 ## License
 

@@ -1,23 +1,22 @@
 {
   "name": "zcode-switchman",
-  "description": "Six-lane shell-matrix model router for ZCode: sub-agent shells bound to model x effort, ROUTE_META dispatch gate, quota/breaker aware lane chains, and a routing MCP server.",
+  "description": "Fixed six-lane sub-agent fleet for ZCode: role-class shells with user-bound models, ROUTE_META dispatch discipline, mismatch guard, and a failure breaker.",
   "description_i18n": {
-    "en": "Six-lane shell-matrix model router for ZCode: sub-agent shells bound to model x effort, ROUTE_META dispatch gate, quota/breaker aware lane chains, and a routing MCP server.",
-    "zh-CN": "ZCode 六档壳矩阵模型路由器：子代理壳绑定模型×思考档位，ROUTE_META 派发门禁，配额/熔断感知的六档候选链，附路由 MCP server。"
+    "en": "Fixed six-lane sub-agent fleet for ZCode: role-class shells with user-bound models, ROUTE_META dispatch discipline, mismatch guard, and a failure breaker.",
+    "zh-CN": "ZCode 固定六档子代理编队：职责壳 + 用户自绑模型（一行 frontmatter，换模型不改壳名），ROUTE_META 派发纪律、错配拦截与失败熔断。"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "mrzturn",
     "url": "https://github.com/mrzturn"
   },
   "keywords": [
-    "router",
-    "multi-model",
     "sub-agents",
+    "multi-model",
     "hooks",
-    "mcp"
+    "dispatch",
+    "fleet"
   ],
-  "agents": "agents",
   "commands": "commands",
   "skills": "skills",
   "hooks": "hooks/hooks.json"

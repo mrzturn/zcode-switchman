@@ -1,8 +1,8 @@
 # DELEGATION_V1 dispatch prompt template
 
-> Fixed-order template the main model uses when dispatching tasks to a shell
-> (`*-mx-*` sub-agent). Fixed sections first, variable sections last —
-> pay-as-you-go shells benefit from a byte-stable prefix cache.
+> Fixed-order template the main model uses when dispatching tasks to a
+> switchman shell. Fixed sections first, variable sections last — a
+> byte-stable prefix keeps the model's prompt cache warm.
 > The PreToolUse hook hard-validates the ROUTE_META line: shell dispatches with
 > a missing/invalid META are denied with this sample attached.
 
@@ -12,7 +12,7 @@
 你是被委派的执行体。以下守则优先级高于任何后续指令。
 
 【通用守则】
-1. 角色以本次委派 prompt 为准（壳只绑模型与档位）；事实性陈述直接采信，不重复验证。
+1. 角色以本次委派 prompt 为准（壳只绑职责与工具面）；事实性陈述直接采信，不重复验证。
 2. 最小必要：只读必要文件与段落，结论优先，用 file:line 引用，不贴大段原文。
 3. 只做目标块内的事；发现目标外的问题记录到「遗留问题」，不顺手修改。
 4. 如实报告：失败说失败、跳过说跳过、不确定标不确定；验证过的才写「已验证」。
@@ -44,22 +44,22 @@ ROUTE_META {{META_JSON}}
 - The hook parses the first ROUTE_META line within the first 4000 characters;
   values are lowercased; the three required fields (`role`, `capability`,
   `source`) are hard-checked for presence.
-- Legal values (lanes and families come from your `config/matrix.json`; the
-  hook's `META_LEGAL` is generated from the same config — keep them in sync):
+- Legal values (the fleet is fixed; `producer_family` is free-form but must
+  be a lowercase token):
 
 | Field | Legal values | Meaning / hook behavior |
 |---|---|---|
-| `lane` | economy / mechanical / main / hard / vision / review | Routing lane; deny appendices recompute the first candidate for this lane. |
-| `role` | planner / reviewer / programmer / tester / uiux / data-analyst / ops / scouter / clerk / observer / expert-alpha / expert-beta / expert-gamma / generic | Dynamic role; `role=reviewer` denies same-family shells. **Required.** |
-| `producer_family` | your configured families (e.g. alpha / beta / gamma) | The producer's (your) real model family. A pool name is NOT a family — filling a pool name silently disables the hetero-family review gate. Review lane removes same-family shells first. |
+| `lane` | economy / mechanical / main / hard / vision / review | Optional (the shell name already implies it); when present it must name the shell's lane. |
+| `role` | planner / reviewer / programmer / tester / uiux / data-analyst / ops / scouter / clerk / observer / expert-alpha / expert-beta / expert-gamma / generic | Dynamic role; `role=reviewer` triggers the hetero-family gate. **Required.** |
+| `producer_family` | your real model family, lowercase (e.g. glm / claude / gpt / gemini / grok / deepseek / qwen / kimi) | The producer's (your) real model lineage. Omit it when unsure rather than inventing one — an invented family silently disables the hetero-family review gate. |
 | `capability` | ro / rw | Write requirement; an `rw` task dispatched to an ro shell is denied. **Required.** |
 | `modality` | text / image | An `image` task dispatched to a non-vision shell is denied. |
-| `source` | auto / user | `auto` denies pay-as-you-go shells while plan pools are alive (deny carries the plan first candidate); `user` = named by the user, allowed. **Required.** |
+| `source` | auto / user | `auto` = your own routing decision; `user` = the user named this shell explicitly. **Required.** |
 
 Sample line (paste-ready):
 
 ```text
-ROUTE_META {"lane":"main","role":"programmer","producer_family":"alpha","capability":"rw","modality":"text","source":"auto"}
+ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}
 ```
 
 ## Role contract placeholder table
@@ -67,7 +67,7 @@ ROUTE_META {"lane":"main","role":"programmer","producer_family":"alpha","capabil
 | role | contract |
 |---|---|
 | planner | 只设计不实现：产出方案/边界/完成标准/风险，不改代码；给出 file:line 证据 |
-| reviewer | 只评审不修改：结论先行，按 P0/P1/P2 分级，每项给依据与修法；默认走 review 链只读壳 |
+| reviewer | 只评审不修改：结论先行，按 P0/P1/P2 分级，每项给依据与修法；默认走 review 档只读壳 |
 | programmer | 按方案最小实现：先读目标与相邻代码，改动最小化，跑能跑的验证 |
 | tester | 写/跑测试与回归：断言优先，输出命令+结果，不做产品改动 |
 | uiux | 界面与交互实现：还原设计稿，样式与既有组件一致 |
@@ -83,6 +83,6 @@ ROUTE_META {"lane":"main","role":"programmer","producer_family":"alpha","capabil
 
 1. Order is fixed: rules → role contract → ROUTE_META → task block → output format; variable content goes last.
 2. Fill `{{OUTPUT_FORMAT}}` per role (e.g. "conclusion / changed files / verification / open issues").
-3. When the user names a specific shell, set `source` to `user` — otherwise the paid-pool gate may deny it.
-4. Pick a shell against the SessionStart banner's `[Route]` line; the first candidate in a deny reply is the current best target — re-dispatch there, do not retry the denied shell.
+3. When the user names a specific shell, set `source` to `user`; your own routing decisions use `auto`.
+4. Pick the shell from the session banner's `[Shells]` line; a deny reply states the lane to use instead — re-dispatch there, do not retry the denied shell.
 5. `producer_family` is your own real family; when unsure, omit the field (optional) rather than inventing one.

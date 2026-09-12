@@ -1,110 +1,100 @@
 ---
-description: Interactive conversational setup for zcode-switchman — discover available models, build the shell matrix with the user, generate agents + registry
+description: Interactive conversational setup for zcode-switchman — install the six shell templates, bind models per lane, record families
 ---
 
 # /switchman-setup — zcode-switchman conversational configuration
 
-Walk the user through building their shell matrix (`config/matrix.json`) by
-asking questions, then generate the agent shells. Ask in the user's language.
-Ask questions in small batches (1–3 per turn), always offering a sensible
-default so the user can just press enter / say "默认".
+Walk the user through installing the six fixed shells and binding a model to
+each. The shells themselves never change — the fleet is fixed (six lanes, one
+shell per lane) — so setup only decides **which model each shell runs on**.
+Ask in the user's language; ask in small batches (1–3 questions per turn),
+always offering a sensible default so the user can just say "默认".
 
 ## Step 0 — mode detection
 
-`${ZCODE_PLUGIN_ROOT}` is this plugin's directory. If
-`${ZCODE_PLUGIN_ROOT}/config/matrix.json` exists, switch to **edit mode**:
-read it, summarize the current matrix in a compact table (pool → models →
-lanes), and ask what to change (add/remove pool, reassign models, reorder a
-lane, regenerate). Apply only what is asked, then jump to Step 5.
+User shell directory: `$ZCODE_SWITCHMAN_AGENTS_DIR` if set, else
+`~/.zcode/agents`. If any `switchman-*.md` files exist there, switch to
+**edit mode**: read them, summarize current bindings in a compact table
+(shell → model or "unbound"), and ask what to change (rebind a lane, bind
+remaining lanes, update families). Apply only what is asked, then jump to
+Step 4. Otherwise run **first-time setup** below.
 
-Otherwise run **first-time setup** below.
+## Step 1 — runtime + model discovery
 
-## Step 1 — discover available models
+1. Check `command -v node && node --version` (>= 18 required). If missing,
+   stop and explain: hooks run as `node` child processes.
+2. Discover the models ZCode can use:
 
-Run:
+   ```bash
+   node ${ZCODE_PLUGIN_ROOT}/scripts/discover-models.mjs
+   ```
 
-```bash
-node ${ZCODE_PLUGIN_ROOT}/scripts/discover-models.mjs
-```
+   It prints `{ source, models: [...] }` with `provider_name`, `model` (id),
+   `name`, `variants` (thought levels), `vision`, `enabled`.
+3. Show the user a numbered table of **enabled** models only:
+   `# | provider | model | vision | variants`. If empty or failing, tell the
+   user to add providers/models in ZCode settings first. Never invent model
+   ids — but always accept a model string the user pastes themselves.
 
-It prints `{ source, models: [...] }` — every model ZCode can use, with
-`provider_name`, `model` (id), `name` (display), `variants` (thought levels),
-`vision`, `enabled`.
+## Step 2 — bind models to lanes
 
-- Show the user a numbered table of **enabled** models only:
-  `# | provider | model | vision | variants`.
-- If the list is empty or the script fails: stop and tell the user to add
-  providers/models in ZCode settings first. Never invent model ids.
+Present the six shells (they do not exist on disk yet; setup creates them)：
 
-## Step 2 — pools (one question, offer default)
+| shell | lane | reads/writes | effort | for |
+|---|---|---|---|---|
+| `switchman-economy` | economy | ro | low | bulk light retrieval / summarization / triage |
+| `switchman-mechanical` | mechanical | rw | low | reformat / move / data chores |
+| `switchman-main` | main | rw | medium | day-to-day implementation workhorse |
+| `switchman-hard` | hard | rw | high | deep design / hard problems |
+| `switchman-vision` | vision | ro | medium | image understanding / screenshot work |
+| `switchman-review` | review | ro | high | review-only second pair of eyes |
 
-Propose a default of **2 subscription pools + 1 pay-as-you-go pool** and ask
-the user to confirm or adjust:
+For each shell ask: "which model?" — the user answers with a table number, a
+model id, or `skip`. Defaults to propose (user confirms or overrides):
 
-1. How many pools, their names (lowercase, used in shell names like
-   `<pool>-mx-<model>-<effort>`)?
-2. Which pool is **pay-as-you-go** (`paid: true`, chain-tail fallback only)?
-   The rest are subscription pools. Any pool can be marked "credit bucket"
-   (same mechanics as subscription; only the label differs).
+- `main`: the strongest general model they use daily;
+- `hard`: their strongest reasoner (may equal main);
+- `mechanical` / `economy`: their cheapest/fastest model;
+- `vision`: a model with `vision=true` (if none, mark unbound and say so);
+- `review`: a model from a **different provider family** than `main` — this
+  feeds the hetero-family review gate; if the user picks the same family,
+  warn once and continue (the gate will deny same-family reviews).
 
-## Step 3 — assign models to pools
+`skip` leaves the shell unbound: it then follows the session default model.
 
-For each pool in turn, show the numbered model table from Step 1 and ask
-which models belong to it (user may reply with numbers, e.g. `1 3 5`, or
-names). Models can belong to multiple pools. Leftover unassigned models:
-mention them once and offer to drop them.
+## Step 3 — install shells
 
-## Step 4 — priorities, families, lanes
+1. For each shell, read the template
+   `${ZCODE_PLUGIN_ROOT}/templates/agents/<shell>.md` and write it to the
+   user shell directory (Step 0 path), inserting the chosen binding as a
+   `model: "<model-id>"` line in the frontmatter (after `color:`). A skipped
+   shell gets no `model:` line at all — do not write placeholders.
+   Existing files: show the diff intent and ask before overwriting.
+2. Write the family map for every **bound** shell to
+   `$ZCODE_SWITCHMAN_STATE/shells.json` (default `~/.zcode/state/shells.json`):
 
-1. **Lane ordering**: for each lane below, show your proposed chain (as shell
-   names, pay-as-you-go pool always last) and ask the user to confirm or
-   give a new order:
-   - `economy`: cheapest/fastest model of the plan pools
-   - `mechanical` / `main`: the workhorse models
-   - `hard`: strongest reasoning models
-   - `vision`: models with `vision=true` only (if none, say so and skip)
-   - `review`: read-only shells from a family different from the expected
-     producer; propose the strongest model not in the `hard` head position
-2. **Families**: propose one family per provider (lowercased provider
-   identity, e.g. from the provider name), confirm with the user. This feeds
-   the hetero-family review gate — it must reflect real model lineage, and a
-   pool name is NOT a family.
-3. **Effort levels**: cross each (pool, model) with the model's `variants`,
-   mapped to ZCode thought levels (`low→low, medium→medium, high→high,
-   max→xhigh`, unknown variants dropped). Default: generate all levels for
-   the pool's models; ask if the user wants fewer.
+   ```json
+   { "switchman-main": { "family": "claude" }, "switchman-review": { "family": "glm" } }
+   ```
 
-## Step 5 — write and generate
+   Family = real model lineage as a lowercase token (e.g. `glm`, `claude`,
+   `gpt`, `gemini`, `grok`, `deepseek`, `qwen`, `kimi`). Derive it from the
+   provider identity; confirm with the user. A provider name is NOT a family.
 
-1. Write `${ZCODE_PLUGIN_ROOT}/config/matrix.json` (this file is gitignored —
-   never print or commit its contents beyond what the user needs to see):
-   - `pools`: each with `label`, `paid`, and for subscription pools a
-     `quotaFile: "<pool>-quota.json"` (note to the user: quota cache files are
-     written by their own refresh scripts; without them, only the breaker
-     protects the pool);
-   - `families`: from Step 4;
-   - `shells`: name `<pool>-mx-<model>-<effort>`, `pool`, `family`, `model`
-     (the exact model id from Step 1), `thoughtLevel`, `capability: "rw"`
-     (offer `ro` only for review-lane-only shells), `modalities`
-     (`["text","image"]` if vision else `["text"]`);
-   - `lanes`: from Step 4, all six keys always present (a lane may reuse
-     another lane's chain);
-   - `roleRouting`: derive — planner/reviewer follow the `hard`/`review`
-     plan-pool order, programmer/tester/uiux/data-analyst/ops follow `main`,
-     scouter/clerk follow `economy`, observer follows `vision`.
-2. Validate before writing: every lane references existing shell names; every
-   shell's pool/family exists; pay-as-you-go shells are not first in any lane.
-3. Run `node ${ZCODE_PLUGIN_ROOT}/scripts/gen-shells.mjs`.
-4. Close with a checklist for the user:
-   - restart ZCode sessions to load the new agents;
-   - next session should show the `[Route]` banner;
-   - optional: point refresh scripts at `<state>/<pool>-quota.json`
-     (format: `{"status":"ok","fetched_at":<ts>,"scopes":{"<scope>":{"used_pct":0-100}}}`);
-   - run `/switchman-doctor` to verify.
+## Step 4 — close
+
+Checklist for the user:
+
+- start a **new ZCode session** so the shells are picked up (Settings →
+  Subagents should list the six switchman shells);
+- the new session's banner shows `[Shells] / [Binding] / [Breaker]`;
+- run `/switchman-doctor` to verify;
+- rebinding later = re-run `/switchman-setup` or edit the `model:` line in
+  `~/.zcode/agents/<shell>.md` — shell names never change.
 
 ## Rules
 
-- Never print API keys or config-file contents; model metadata only.
-- Never write `config/matrix.json` without showing the user a final summary
-  and getting an explicit confirmation.
-- If the user says "用默认/默认吧", apply all proposed defaults in one go.
+- Never print API keys or provider credentials; model metadata only.
+- Model ids come from discovery output or verbatim user input — never guess.
+- Rebinding a model never requires regenerating anything else: shell names,
+  the dispatch protocol, and docs are stable.

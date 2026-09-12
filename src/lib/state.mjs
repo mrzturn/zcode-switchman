@@ -20,9 +20,7 @@ export function stateDir() {
 export const statePaths = {
   routing: () => path.join(stateDir(), "routing.json"),
   failuresLog: () => path.join(stateDir(), "failures.log"),
-  matrix: () => path.join(stateDir(), "model-matrix.json"),
-  registry: () => path.join(stateDir(), "shell-registry.json"),
-  routeState: () => path.join(stateDir(), "route-state.json"),
+  shells: () => path.join(stateDir(), "shells.json"),
 };
 
 export function readJson(p) {

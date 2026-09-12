@@ -4,9 +4,9 @@
  * within FAIL_WINDOW trips a breaker into routing.json down_agents with a
  * DOWN_TTL expiry (self-healing — expiry cleaned by hooks on read).
  *
- * Key mapping: not-found failures only break the requested name itself
- * (typo/missing config must not poison the combo); other failures break the
- * shell's combo_key so aliases of the same model combo share the breaker.
+ * Key mapping: the fixed fleet has one shell per lane, so the breaker key is
+ * simply the requested shell name. not-found failures only break the
+ * requested name itself (a typo can never poison a healthy shell).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -42,17 +42,6 @@ export function failureReason(payload) {
   return "dispatch failed (no reason in payload)";
 }
 
-/** Returns [key, shellName|null, comboKey|null]. */
-export function breakerKeys(agent, reason, registry) {
-  if (isNotFound(reason)) return [agent, null, null];
-  const shell = registry && typeof registry === "object" ? registry[agent] : null;
-  if (shell && typeof shell === "object") {
-    const combo = shell.combo_key || null;
-    return [combo || agent, agent, combo];
-  }
-  return [agent, null, null];
-}
-
 export function loadRouting() {
   const data = readJson(statePaths.routing());
   const routing = data && typeof data === "object" && !Array.isArray(data) ? data : {};
@@ -73,14 +62,11 @@ export function cleanExpired(routing, now = Date.now() / 1000) {
   return dead;
 }
 
-/** Is this agent (by name or combo_key) currently breaker-down? */
-export function agentDown(agent, routing, registry) {
+/** Is this agent currently breaker-down? (fixed fleet: keyed by name) */
+export function agentDown(agent, routing) {
   const down = routing && routing.down_agents;
   if (!down || typeof down !== "object") return false;
-  if (agent in down) return true;
-  const shell = registry && typeof registry === "object" ? registry[agent] : null;
-  const combo = shell && typeof shell === "object" ? shell.combo_key : null;
-  return Boolean(combo && combo in down);
+  return agent in down;
 }
 
 /** Failure count for a key inside the window, from the log tail only. */

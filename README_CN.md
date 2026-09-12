@@ -1,123 +1,123 @@
 # zcode-switchman
 
-ZCode 插件：把多模型子代理派发变成确定性的、策略驱动的路由——
+ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳，一档一壳，壳背后的
+模型由你自己用一行 frontmatter 绑定。壳名永不改变——换模型不动任何 prompt、
+文档与肌肉记忆。
+
 [opencode-switchman](https://github.com/mrzturn/opencode-switchman)
-六档壳矩阵设计在 ZCode 上的移植实现。
+的移植简化版：ZCode 的子代理注册是静态的、不支持运行时换模型，所以编队固定、
+**模型绑定交给用户**——手动改 `~/.zcode/agents`，或用 `/switchman-setup`
+对话式完成。
 
-**核心思想（换壳不换脑）**：子代理**壳**（`<池>-mx-<模型>-<档位>`）只绑定
-*模型 × 思考档位 × 工具白名单*，角色由每次委派 prompt 动态赋予。一组 hooks
-加一个 MCP server 负责按六档链路派发、对每个壳派发执行 `ROUTE_META` 契约
-校验、连续失败触发熔断、并感知池配额。
+> **发布即脱敏**——本仓库只包含通用模板与代码。任何个人部署的真实服务商、
+> 套餐、模型绑定、配额口径都不入库；你的绑定只存在于你的家目录。
 
-> **发布即脱敏**——本仓库只包含通用引擎与占位示例配置。任何个人部署的
-> 真实服务商、套餐、模型绑定、配额口径都不入库；一切部署相关内容都在
-> 本地 `config/matrix.json`（已 gitignore）与 state 目录中。
+## 编队
+
+| 档位 | 壳 | 读写 | 档深 | 用途 |
+|---|---|---|---|---|
+| economy | `switchman-economy` | ro | low | 海量轻量检索/摘要/清点 |
+| mechanical | `switchman-mechanical` | rw | low | 格式化/搬运/数据杂活 |
+| main | `switchman-main` | rw | medium | 日常实现主力 |
+| hard | `switchman-hard` | rw | high | 深度设计/难题攻坚 |
+| vision | `switchman-vision` | ro（image） | medium | 看图/截图驱动的工作 |
+| review | `switchman-review` | ro | high | 只评审的第二双眼睛 |
+
+- 壳只绑定 *职责类别 × 工具白名单 × 思考档位*；角色由每次委派 prompt
+  动态赋予（DELEGATION_V1）。
+- 壳**未绑定模型**时跟随会话默认模型——零配置即可用；绑了模型才有真正的
+  多模型分工。
+- 复审按异族设计：review 壳应绑定与 producer 不同 family 的模型。
 
 ## 功能
 
-- **六档壳矩阵**——`economy / mechanical / main / hard / vision / review`
-  候选链，由配置与运行时壳清单（registry）实时计算。
-- **派发门禁**（PreToolUse hook）——每个壳派发过六闸：
-  registry 状态 → 探测矩阵 → 熔断 → 池耗尽 → `ROUTE_META` 校验 →
-  语义校验（复审异族、ro/rw、模态、付费池链尾）；deny 附言带实时重算的
-  首候选，可直接改派。
+- **六个固定壳**——以模板随插件分发，安装到 `~/.zcode/agents/`（在
+  Settings → Subagents 里与其他子代理一样可见）。
+- **绑定模型 = 一行**——壳 frontmatter 里的 `model: "..."`；
+  `/switchman-setup` 会先发现你的 ZCode 模型（`scripts/discover-models.mjs`，
+  绝不读取/打印 API key）再替你写入。
+- **派发门禁**（PreToolUse hook）——每个壳派发过三闸：失败熔断 →
+  `ROUTE_META` 校验 → 语义（rw 任务不能派给只读壳、image 任务只能派给
+  视觉壳、同族复审拒绝）。非 switchman 代理原样放行。
 - **ROUTE_META 契约**——每个壳委派 prompt 必带一行元数据：
-  `ROUTE_META {"lane":"main","role":"programmer","producer_family":"alpha","capability":"rw","modality":"text","source":"auto"}`
-- **熔断自愈**（PostToolUseFailure hook）——10 分钟窗口内失败 2 次触发
+  `ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}`
+- **熔断自愈**（PostToolUseFailure hook）——10 分钟窗口内失败 2 次触发该壳
   10 分钟自动恢复的熔断；not-found 类错误只熔断请求名本身，拼错名不会
   牵连健康壳。
 - **会话横幅**（SessionStart hook）——会话启动注入
-  `[Route] / [Quota] / [Limits]` 三行上下文。
-- **路由 MCP server**——`route_query`、`registry_list`、`breaker_status`。
-- **CLI**——`scripts/route-cli.mjs`（确定性 JSON 输出）与
-  `scripts/gen-shells.mjs`（由配置生成 `agents/*.md` 与 registry）。
-- **命令与技能**——`/switchman-setup`（对话式首配，含模型自动发现）、`/switchman-handover`、
-  `/switchman-doctor` 与 `switchman-routing` 派发协议技能。
+  `[Shells] / [Binding] / [Breaker]` 三行上下文。
+- **命令与技能**——`/switchman-setup`（对话式首配绑模型）、`/switchman-doctor`、
+  `/switchman-handover` 与 `switchman-routing` 派发协议技能。
 
 ## 快速开始
 
-**前置要求**：`PATH` 上有 Node.js ≥ 18。插件的 hooks 与 MCP server 以 `node`
-子进程运行（与官方 ZCode 插件模板一致）；没有 node 时按 fail-open 静默失效
-——`/switchman-doctor` 的第一项就是检查这个。
+**前置要求**：`PATH` 上有 Node.js ≥ 18。插件 hooks 以 `node` 子进程运行
+（与官方 ZCode 插件模板一致）；没有 node 时按 fail-open 静默失效——
+`/switchman-doctor` 的第一项就是检查这个。
 
 ```bash
 # 1. 安装插件（marketplace，或让 ZCode 指向本目录）
 
-# 2. 生成壳矩阵——二选一：
-#    a) 对话式配置（自动发现 ZCode 可用模型，问答式建池/排档，代写 config/matrix.json）：
+# 2. 安装壳并绑定模型——二选一：
+#    a) 对话式（自动发现 ZCode 可用模型，逐档询问，代写文件）：
 /switchman-setup
 #
 #    b) 手动：
-cp config/matrix.example.json config/matrix.json
-$EDITOR config/matrix.json     # 填入池、模型绑定、六档链
+mkdir -p ~/.zcode/agents
+cp <插件目录>/templates/agents/switchman-*.md ~/.zcode/agents/
+$EDITOR ~/.zcode/agents/switchman-main.md   # 加一行：  model: "你的模型ID"
 
-# 3. 生成 agent 壳与 registry
-node scripts/gen-shells.mjs
-
-# 4. 重启 ZCode——新会话应出现路由横幅
+# 3. 开一个新 ZCode 会话——启动时会出现横幅
 ```
 
-state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）。
+state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）；
+存放 `shells.json`（family 表，供复审闸使用）、`routing.json`（熔断）与
+`failures.log`。
 
 ### 验证
 
 ```bash
-node scripts/route-cli.mjs --all          # 六档链 JSON
-node scripts/gen-shells.mjs --check       # 配置 ↔ registry 漂移检查
-node --test "test/*.test.mjs"             # 契约测试
+/switchman-doctor                # ZCode 内：8 项自检
+node --test "test/*.test.mjs"    # 契约测试
 ```
-
-## 配置（`config/matrix.json`）
-
-| 键 | 含义 |
-|---|---|
-| `pools` | 命名服务商池。`paid: true` 标记按量付费池（`source=auto` 时仅链尾兜底）。`quotaFile` 指向 state 目录下的缓存文件：`{"status":"ok","fetched_at":<ts>,"scopes":{"<口径>":{"used_pct":0-100}}}`。 |
-| `families` | 合法的 `producer_family` 值（真实模型 family——**不是**池名）。 |
-| `shells` | 壳定义：`name`（`<池>-mx-<模型>-<档位>`）、`pool`、`family`、`model`、`thoughtLevel`、`capability`（`ro`/`rw`）、`modalities`。 |
-| `lanes` | 档位 → 有序壳名。顺序即质量分层偏好；付费池在运行时强制链尾。 |
-| `roleRouting` | 角色 → 池降级链（供文档/工具参考；运行时以 lanes 为准）。 |
-
-配额缓存文件由你自己的刷新脚本写入（插件 hook 内绝不联网）。任一口径
-用到 100% 即硬拦截——这是唯一的配额闸；80% 以上只缩短缓存 TTL。
 
 ## 架构
 
 ```
-config/matrix.json      ← 你的私有壳矩阵（gitignore）
-src/lib/*.mjs           ← 共享核心：config / meta / lane / quota / breaker / state
+templates/agents/       ← 六壳正本（随插件分发；拷贝到 ~/.zcode/agents）
+src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / state
 hooks/                  ← SessionStart / PreToolUse(Agent|Task) / PostToolUseFailure
-mcp/routing-server.mjs  ← route_query / registry_list / breaker_status
-scripts/                ← gen-shells.mjs、route-cli.mjs
-agents/                 ← 生成的壳（gitignore——含个人模型绑定）
-test/                   ← 契约测试（meta fixtures、lane 六闸、breaker）
+scripts/discover-models.mjs ← 枚举 ZCode 已配置模型（供 /switchman-setup）
+commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
+skills/switchman-routing/   ← 派发协议（六档、ROUTE_META、失败处理）
+assets/delegation-template.md ← DELEGATION_V1 委派 prompt 模板
+test/                   ← 契约测试（meta fixtures、编队、hook 冒烟）
 ```
 
 沿袭源项目的设计规则：
 
-- **处处 fail-open**——路由器坏了绝不阻塞干活；降级模式打标
-  （`status: "ok*"`）并写 stderr。
-- **单一实现源**——hooks、MCP、CLI 都调用 `src/lib/lane.mjs`，
-  链路在不同入口间永不漂移。
-- **hook 保持轻量**——只做本地 JSON 读取，3 秒预算内绰绰有余；
-  重活交给刷新脚本 / MCP。
+- **处处 fail-open**——门禁坏了绝不阻塞干活；错误写 stderr，派发照常放行。
+- **单一实现源**——hooks 都调用 `src/lib/*`，门禁语义在不同入口间永不漂移。
+- **hook 保持轻量**——只读本地文件、不联网，3 秒预算内绰绰有余。
 
 ## 契约（勿随意破坏）
 
 1. **ROUTE_META 行**——六个白名单键、值小写、解析前 4000 字符；
-   `role` / `capability` / `source` 为必填安全字段。行为由
-   `test/meta.test.mjs` 锁定。
-2. **state 文件**——`shell-registry.json`（运行时壳权威）、
-   `routing.json`（`down_agents` + `down_expiry`）、`route-state.json`
-   （横幅快照）、`failures.log`（JSONL）、`<池>-quota.json`（配额缓存）。
-3. **deny 附言**——每次拒绝都携带该档实时首候选，主模型无需重算即可改派。
+   `role` / `capability` / `source` 为必填安全字段；`producer_family`
+   为自由小写 token。行为由 `test/meta.test.mjs` 锁定。
+2. **壳名**——`switchman-<档位>` 是稳定标识符：委派 prompt、文档、deny
+   附言、横幅都引用它。小版本绝不改壳名。
+3. **state 文件**——`shells.json`（名 → `{family}`）、`routing.json`
+   （`down_agents` + `down_expiry`）、`failures.log`（JSONL）。
+4. **deny 附言**——每次拒绝都说明应改用哪个档位/壳。
 
 ## 路线图
 
-- [ ] 探测集成（`urgency=immediate` 按延迟矩阵换序）
-- [ ] 水位感知的链内换序（池 surplus/strained 状态）
-- [ ] 会话水位计量门禁（软/硬预算）
+- [ ] userConfig 逐壳开关（state 目录、模板目录）
+- [ ] 派发记账（PostToolUse 台账：档位、耗时、结果）
+- [ ] 探测矩阵集成（可选、需显式开启）
+- [ ] 多池档位链——完整版 opencode-switchman 路由器作为可选「进阶模式」
 - [ ] 无视觉主模型的图像中继
-- [ ] `/poolConfig`、`/modelRank` 配置命令
 
 ## 许可
 

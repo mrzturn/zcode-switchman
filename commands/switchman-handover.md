@@ -1,12 +1,12 @@
 ---
-description: Generate a handover pack for starting a fresh session with full routing context
+description: Generate a handover pack for starting a fresh session with full fleet context
 ---
 
 # /switchman-handover — session handover
 
 Produce a handover pack, then guide the user to start a new session. Arguments:
-`/handover [auto|<pool-name>|<model-name>] [yolo]` — the first argument is a
-routing hint for the next session (auto = let the router decide); `yolo`
+`/switchman-handover [auto|<lane>|<shell>] [yolo]` — the first argument is a
+routing hint for the next session (auto = let the dispatcher decide); `yolo`
 authorizes non-interactive execution of the steps below.
 
 Steps:
@@ -16,9 +16,9 @@ Steps:
 2. **Write the pack** to the state dir: `$ZCODE_SWITCHMAN_STATE` (default
    `~/.zcode/state`) under `handovers/<yyyy-mm-dd>/handover.md`, containing the
    summary plus:
-   - current routing snapshot: run `node ${ZCODE_PLUGIN_ROOT}/scripts/route-cli.mjs --all`
-     and paste the `[Route]`-relevant output;
-   - relevant state file paths (routing.json / route-state.json);
+   - the fleet snapshot: the session banner's `[Shells] / [Binding] /
+     [Breaker]` lines, verbatim;
+   - relevant state file paths (routing.json / shells.json / failures.log);
    - the routing hint argument, if given.
 3. **Never** include secrets, credentials, or config file contents — paths only.
 4. Tell the user: start a new ZCode session and run

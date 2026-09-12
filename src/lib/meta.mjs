@@ -1,6 +1,6 @@
 /**
- * ROUTE_META parsing + validation — port of the meta contract (window, dual
- * format, key whitelist, lowercase values, required safety fields).
+ * ROUTE_META parsing + validation — the meta contract (window, dual format,
+ * key whitelist, lowercase values, required safety fields).
  *
  * Contract:
  *   - The delegation prompt carries one line `ROUTE_META {...}` in its first
@@ -8,9 +8,12 @@
  *   - Only the six whitelisted keys are accepted; values are lowercased.
  *   - Safe fields (source/role/capability) are REQUIRED; a missing one or an
  *     illegal value makes the whole META bad.
+ *   - `producer_family` is free-form (any real model lineage) but must be a
+ *     lowercase token; lanes are the fixed six of the static fleet.
  * parseRouteMeta returns [meta, err]: err === null means valid; otherwise
  *   "missing" | "malformed" | ["invalid", field, value] | ["required", field].
  */
+import { LANES } from "./shells.mjs";
 
 export const META_KEYS = ["lane", "role", "producer_family", "capability", "modality", "source"];
 export const META_REQUIRED = ["source", "role", "capability"];
@@ -24,32 +27,29 @@ export const CAPABILITIES = ["ro", "rw"];
 export const MODALITIES = ["text", "image"];
 export const SOURCES = ["auto", "user"];
 
-/**
- * Build the legal-value table from config: lanes and producer families are
- * deployment-specific, the rest are fixed protocol constants.
- */
-export function legalValues(cfg) {
+// producer_family: free-form lineage token (glm / claude / qwen / kimi / …).
+const FAMILY_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+export function legalValues() {
   return {
-    lane: cfg.laneOrder,
+    lane: LANES,
     role: ROLES,
-    producer_family: cfg.families,
+    producer_family: null, // free-form, format-checked
     capability: CAPABILITIES,
     modality: MODALITIES,
     source: SOURCES,
   };
 }
 
-export function metaSample(cfg) {
-  const lane = cfg.laneOrder.includes("main") ? "main" : cfg.laneOrder[0] || "main";
-  const fam = cfg.families[0] || "your-family";
+export function metaSample() {
   return (
-    `ROUTE_META {"lane":"${lane}","role":"programmer","producer_family":"${fam}",` +
+    `ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family",` +
     `"capability":"rw","modality":"text","source":"auto"}`
   );
 }
 
-export function parseRouteMeta(prompt, cfg) {
-  const legal = legalValues(cfg);
+export function parseRouteMeta(prompt) {
+  const legal = legalValues();
   if (typeof prompt !== "string" || !prompt) return [null, "missing"];
   const m = /^ROUTE_META[ \t]+(.+)$/m.exec(prompt.slice(0, 4000));
   if (!m) return [null, "missing"];
@@ -78,7 +78,11 @@ export function parseRouteMeta(prompt, cfg) {
   }
   if (!Object.keys(out).length) return [null, "malformed"];
   for (const [k, v] of Object.entries(out)) {
-    if (!(legal[k] || []).includes(v)) return [null, ["invalid", k, v]];
+    if (legal[k] === null) {
+      if (!FAMILY_RE.test(v)) return [null, ["invalid", k, v]];
+    } else if (!(legal[k] || []).includes(v)) {
+      return [null, ["invalid", k, v]];
+    }
   }
   for (const k of META_REQUIRED) {
     if (!(k in out)) return [null, ["required", k]];
@@ -87,9 +91,9 @@ export function parseRouteMeta(prompt, cfg) {
 }
 
 /** META error → deny-appendix fragment (sample + targeted legal values). */
-export function metaErrorHint(err, cfg) {
+export function metaErrorHint(err) {
   if (err === null) return "";
-  const sample = metaSample(cfg);
+  const sample = metaSample();
   if (err === "missing") {
     return `ROUTE_META line missing (must be carried near the top of every shell dispatch); sample: ${sample}`;
   }
@@ -97,9 +101,12 @@ export function metaErrorHint(err, cfg) {
     return `ROUTE_META line malformed (single-line JSON or k=v space-separated); sample: ${sample}`;
   }
   const [kind, field] = err;
-  const legal = (legalValues(cfg)[field] || []).join("/");
+  const legal = legalValues()[field];
+  const legalTxt = legal === null
+    ? "a lowercase model-family token (your real lineage, e.g. glm / claude / gpt)"
+    : (legal || []).join("/");
   if (kind === "invalid") {
-    return `ROUTE_META.${field}=${JSON.stringify(err[2])} is illegal (legal: ${legal}); sample: ${sample}`;
+    return `ROUTE_META.${field}=${JSON.stringify(err[2])} is illegal (legal: ${legalTxt}); sample: ${sample}`;
   }
-  return `ROUTE_META missing required field ${field} (legal: ${legal}); sample: ${sample}`;
+  return `ROUTE_META missing required field ${field} (legal: ${legalTxt}); sample: ${sample}`;
 }
