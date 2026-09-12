@@ -44,10 +44,15 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 - **熔断自愈**（PostToolUseFailure hook）——10 分钟窗口内失败 2 次触发该壳
   10 分钟自动恢复的熔断；not-found 类错误只熔断请求名本身，拼错名不会
   牵连健康壳。
-- **会话横幅**（SessionStart hook）——会话启动注入
-  `[Shells] / [Binding] / [Breaker]` 三行上下文。
+- **会话横幅**（SessionStart hook）——每次会话启动注入
+  `[Session] / [Shells] / [Binding] / [Breaker] / [Workspace]` 五行上下文
+  （有待交接时再多一行一次性的 `[Handover]`）。
+- **项目工作区 `.switchman/`**——所有中间产物（壳的落盘输出、scratch
+  分析、交接文档）统一放项目根的 `.switchman/`，绝不散落源码目录；该规则
+  由横幅、routing 技能、壳模板与委派模板四处共同承载。
 - **命令与技能**——`/switchman-setup`（对话式首配绑模型）、`/switchman-doctor`、
-  `/switchman-handover` 与 `switchman-routing` 派发协议技能。
+  `/switchman-handover`（总结→交接文档→fork 备份→compact→续作）与
+  `switchman-routing` 派发协议技能。
 
 ## 快速开始
 
@@ -85,6 +90,27 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
   `$switchman-setup`（`$` 前缀 + 文件名，不带插件名前缀，不存在双重
   前缀问题）。
 
+## 工作区与交接
+
+所有 switchman 中间产物统一放**项目根的 `.switchman/`** 目录——壳的落盘
+输出、scratch 分析、提取的数据、交接文档。`rw` 壳在委派 prompt 里拿到明确
+的产物路径（缺省 `.switchman/`）；`ro` 壳不落盘——产物以文本返回，由委派方
+落盘。除非想给交接文档做版本管理，建议把 `.switchman/` 加进项目的
+`.gitignore`。
+
+`/switchman-handover` 把当前会话交接给新上下文：
+
+1. 把会话总结写进
+   `.switchman/<日期>/<会话 ID>/handover/handover.md`（固定章节；
+   「Next steps」是续作起点）。
+2. 写指针 `.switchman/handover.json`——SessionStart hook 在下一次会话启动
+   （含 compact）时注入 `[Handover] pending:` 行并清除该文件（一次性）。
+3. Fork 当前会话作为 compact 前的备份（客户端会话列表，或支持的 CLI；
+   即使不 fork，转录 `~/.zcode/cli/rollout/model-io-<会话 ID>.jsonl` 也不
+   会因 compact 丢失）。
+4. 执行 `/compact`——新上下文会从 `[Handover]` 行拿到文档路径，读取文档并
+   从 Next steps 继续。
+
 ### 验证
 
 ```bash
@@ -96,7 +122,7 @@ node --test "test/*.test.mjs"    # 契约测试
 
 ```
 templates/agents/       ← 六壳正本（随插件分发；拷贝到 ~/.zcode/agents）
-src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / state
+src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / handover / state
 hooks/                  ← SessionStart / PreToolUse(Agent|Task) / PostToolUseFailure
 scripts/discover-models.mjs ← 枚举 ZCode 已配置模型（供 /switchman-setup）
 commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
@@ -119,7 +145,8 @@ test/                   ← 契约测试（meta fixtures、编队、hook 冒烟�
 2. **壳名**——`switchman-<档位>` 是稳定标识符：委派 prompt、文档、deny
    附言、横幅都引用它。小版本绝不改壳名。
 3. **state 文件**——`routing.json`（`down_agents` + `down_expiry`）、
-   `failures.log`（JSONL）。
+   `failures.log`（JSONL），以及项目级 `.switchman/handover.json` 指针
+   （由 `/switchman-handover` 写入、SessionStart hook 一次性消费）。
 4. **deny 附言**——每次拒绝都说明应改用哪个档位/壳。
 
 ## 路线图

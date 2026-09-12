@@ -14,6 +14,7 @@ process.env.ZCODE_SWITCHMAN_AGENTS_DIR = agentsDir;
 
 const { SHELLS, LANES, shellInfo, laneOfShell } = await import("../src/lib/shells.mjs");
 const { writeJsonAtomic, statePaths } = await import("../src/lib/state.mjs");
+const { writePointer } = await import("../src/lib/handover.mjs");
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -120,12 +121,38 @@ test("hook smoke: breaker-down shell is denied", () => {
   fs.rmSync(statePaths.routing(), { force: true });
 });
 
-test("hook smoke: session-start banner renders the three lines", () => {
+test("hook smoke: session-start banner renders the fleet lines", () => {
   const doc = JSON.parse(runHook("session-start.mjs", {}).stdout);
   const msg = doc.hookSpecificOutput.additionalContext;
   assert.match(msg, /\[Shells\] economy=switchman-economy\(ro\)/);
   assert.match(msg, /\[Binding\] 0\/6 shells model-bound/);
   assert.match(msg, /\[Breaker\] down: none/);
+  assert.match(msg, /\[Workspace\] intermediate artifacts → <project>/);
+  assert.doesNotMatch(msg, /\[Session\]/); // no session id in the payload
+  assert.doesNotMatch(msg, /\[Handover\]/); // no pointer anywhere
+});
+
+test("hook smoke: banner carries the session id when the runtime passes one", () => {
+  const msg = JSON.parse(runHook("session-start.mjs", { session_id: "sess_test" }).stdout)
+    .hookSpecificOutput.additionalContext;
+  assert.match(msg, /\[Session\] sess_test/);
+});
+
+test("hook smoke: pending handover pointer is injected once and consumed", () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-project-"));
+  const docPath = path.join(
+    project, ".switchman", "2026-09-12", "sess_x", "handover", "handover.md",
+  );
+  writePointer(project, { path: docPath, session_id: "sess_x" });
+  const msg = JSON.parse(
+    runHook("session-start.mjs", { cwd: project, session_id: "sess_x" }).stdout,
+  ).hookSpecificOutput.additionalContext;
+  assert.ok(msg.includes(`[Handover] pending: read ${docPath}`), msg);
+  assert.ok(!fs.existsSync(path.join(project, ".switchman", "handover.json")), "pointer consumed");
+  const msg2 = JSON.parse(runHook("session-start.mjs", { cwd: project }).stdout)
+    .hookSpecificOutput.additionalContext;
+  assert.doesNotMatch(msg2, /\[Handover\]/);
+  fs.rmSync(project, { recursive: true, force: true });
 });
 
 test("hook smoke: session-start counts a bound model", () => {

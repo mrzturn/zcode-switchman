@@ -18,6 +18,7 @@
 4. 如实报告：失败说失败、跳过说跳过、不确定标不确定；验证过的才写「已验证」。
 5. 项目 AGENTS.md 与委派方明示约束优先于个人偏好。
 6. 任何情况下不输出密钥、凭据、配置正文；涉及敏感路径只写路径不写内容。
+7. 中间产物写到项目根 `.switchman/` 下（下方「产物路径」优先）；只读壳不落盘，产物以文本返回。
 
 【角色 contract】
 {{ROLE_CONTRACT}}
@@ -28,6 +29,7 @@ ROUTE_META {{META_JSON}}
 目标：{{GOAL}}
 已知事实：{{FACTS}}
 相关路径：{{PATHS}}
+产物路径：{{ARTIFACTS_DIR}}（无落盘需求写 none）
 完成标准：{{ACCEPTANCE}}
 
 【输出格式】
@@ -84,3 +86,4 @@ ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text
 2. Fill `{{OUTPUT_FORMAT}}` per role (e.g. "conclusion / changed files / verification / open issues").
 3. When the user names a specific shell, set `source` to `user`; your own routing decisions use `auto`.
 4. Pick the shell from the session banner's `[Shells]` line; a deny reply states the lane to use instead — re-dispatch there, do not retry the denied shell.
+5. Fill `{{ARTIFACTS_DIR}}` with a path under the project's `.switchman/` when the task must leave files on disk; write `none` otherwise (ro shells never write anyway).

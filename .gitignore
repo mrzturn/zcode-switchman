@@ -5,5 +5,8 @@ docs/
 state/
 *.log
 
+# Session workspace: intermediate artifacts + handover docs (this repo too)
+.switchman/
+
 node_modules/
 .DS_Store

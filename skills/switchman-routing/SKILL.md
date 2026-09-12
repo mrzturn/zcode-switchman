@@ -14,9 +14,10 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 - A shell binds only *role class × tool whitelist × thought level*; the role
   is assigned dynamically by each dispatch prompt (DELEGATION_V1). The role
   contract and task live in the prompt, never in the shell.
-- Read the SessionStart banner's `[Shells]` line for the fleet and
-  `[Binding]` for which shells run a user-bound model; unbound shells follow
-  the session default model.
+- Read the SessionStart banner for session context: `[Session]` (current
+  session id), `[Shells]` (the fleet), `[Binding]` (which shells run a
+  user-bound model), `[Breaker]` (down shells), `[Workspace]` (artifact
+  root), and `[Handover]` (a pending handover doc, if any).
 
 | lane | shell | capability | effort | use for |
 |---|---|---|---|---|
@@ -29,6 +30,22 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 
 - Reviews are plain second-opinion dispatches: the review shell runs whatever
   model the user bound in its frontmatter; the gate never inspects models.
+
+## Workspace
+
+- All switchman intermediate artifacts live under the **project root
+  `.switchman/`** directory: shell outputs saved to disk, scratch analysis,
+  extracted data, and handover docs
+  (`.switchman/<date>/<session-id>/handover/`).
+- Create it on demand; never scatter artifacts into source directories.
+  Suggest the user add `.switchman/` to `.gitignore` unless they want to
+  version the docs.
+- `rw` shells get an explicit artifact path in the delegation prompt (under
+  `.switchman/`) and default to `.switchman/` when none is given. `ro`
+  shells never write — they return artifacts as text and the dispatching
+  agent persists them.
+- After a compact or a fresh start, the banner's `[Handover]` line points to
+  a pending handover doc — read it first and continue from its next steps.
 
 ## Dispatching
 

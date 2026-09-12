@@ -1,23 +1,39 @@
 #!/usr/bin/env node
 /**
- * SessionStart hook: render the static fleet banner. Fail-open — any error
- * only touches stderr, the session always starts.
+ * SessionStart hook: render the fleet banner and hand pending handover to a
+ * fresh context. Fail-open — any error only touches stderr, the session always
+ * starts.
  *
  * Banner contract (consumed by the switchman-routing skill):
- *   [Shells]   the six fixed-lane shells with capability (+image for vision)
- *   [Binding]  how many shells carry a user-bound model; unbound shells
- *              follow the session default model
- *   [Breaker]  currently down shells, if any
+ *   [Session]   current session id (omitted when the runtime does not pass one)
+ *   [Shells]    the six fixed-lane shells with capability (+image for vision)
+ *   [Binding]   how many shells carry a user-bound model; unbound shells
+ *               follow the session default model
+ *   [Breaker]   currently down shells, if any
+ *   [Workspace] project-local intermediate-artifact root (.switchman/)
+ *   [Handover]  pending handover doc, injected once, then the pointer is
+ *               cleared (written by /switchman-handover)
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
 import { SHELLS } from "../src/lib/shells.mjs";
+import { readPointer, clearPointer } from "../src/lib/handover.mjs";
 
 function agentsDir() {
   return process.env.ZCODE_SWITCHMAN_AGENTS_DIR ||
     path.join(os.homedir(), ".zcode", "agents");
+}
+
+function readStdinPayload() {
+  try {
+    const raw = fs.readFileSync(0, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 /** Count shells with a user-bound model: a `model:` line in the agent file. */
@@ -59,16 +75,46 @@ function breakerLine(routing) {
   return `[Breaker] down: ${downTxt}`;
 }
 
+function workspaceLine() {
+  return "[Workspace] intermediate artifacts → <project>/.switchman/ (handover docs under .switchman/<date>/<session>/handover/)";
+}
+
+function handoverLine(projectDir) {
+  if (!projectDir) return null;
+  let ptr = null;
+  try { ptr = readPointer(projectDir); } catch { return null; }
+  if (!ptr) return null;
+  clearPointer(projectDir); // one-shot: consumed by this injection
+  return `[Handover] pending: read ${ptr.path} and continue from its next steps`;
+}
+
 try {
+  const payload = readStdinPayload();
+  const sessionId =
+    payload.session_id ||
+    process.env.ZCODE_SESSION_ID ||
+    process.env.CLAUDE_SESSION_ID ||
+    "";
+  const projectDir =
+    payload.cwd ||
+    process.env.ZCODE_PROJECT_DIR ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    process.cwd();
+
   const routing = loadRouting();
   try { cleanExpired(routing); } catch { /* fail-open */ }
 
-  const message = [shellLine(), bindingLine(), breakerLine(routing)].join("\n");
+  const lines = [];
+  if (sessionId) lines.push(`[Session] ${sessionId}`);
+  lines.push(shellLine(), bindingLine(), breakerLine(routing), workspaceLine());
+  const handover = handoverLine(projectDir);
+  if (handover) lines.push(handover);
+
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "SessionStart",
-        additionalContext: message,
+        additionalContext: lines.join("\n"),
       },
     }) + "\n",
   );

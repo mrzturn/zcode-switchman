@@ -52,10 +52,17 @@ made by hand in `~/.zcode/agents` or conversationally via `/switchman-setup`.
 - **Circuit breaker** (PostToolUseFailure hook) — 2 failures in 10 min trips a
   10-min auto-recovering breaker on that shell; not-found errors stay scoped
   to the requested name so typos never poison healthy shells.
-- **Session banner** (SessionStart hook) — `[Shells] / [Binding] / [Breaker]`
-  context injected at session start.
-- **Commands & skill** — `/switchman-setup` (conversational first-run binding),
-  `/switchman-doctor`, `/switchman-handover`, and the `switchman-routing`
+- **Session banner** (SessionStart hook) — `[Session] / [Shells] / [Binding] /
+  [Breaker] / [Workspace]` context injected at every session start (plus a
+  one-shot `[Handover]` line when a handover is pending).
+- **Project workspace `.switchman/`** — all intermediate artifacts (shell
+  outputs on disk, scratch analysis, handover docs) live under the project
+  root's `.switchman/`, never scattered in source directories; the rule is
+  carried by the banner, the routing skill, the shell templates, and the
+  delegation template.
+- **Commands & skill** — `/switchman-setup` (conversational first-run
+  binding), `/switchman-doctor`, `/switchman-handover` (summarize → doc →
+  fork backup → compact → continue), and the `switchman-routing`
   dispatch-protocol skill.
 
 ## Quick start
@@ -99,6 +106,31 @@ Notes from dispatch-level acceptance testing:
   `$switchman-setup` (a `$` prefix plus the file name, no plugin-name
   prefix — there is no double-prefix problem).
 
+## Workspace & handover
+
+All switchman intermediate artifacts live under the **project root's
+`.switchman/`** directory — shell outputs saved to disk, scratch analysis,
+extracted data, and handover docs. `rw` shells get an explicit artifact path
+in the delegation prompt (default `.switchman/`); `ro` shells never write —
+they return artifacts as text and the dispatching agent persists them. Add
+`.switchman/` to your project's `.gitignore` unless you want to version the
+docs.
+
+`/switchman-handover` turns the current session into a fresh-context handover:
+
+1. Summarize the session into
+   `.switchman/<date>/<session-id>/handover/handover.md` (fixed sections;
+   "Next steps" is where work resumes).
+2. Write the pointer `.switchman/handover.json` — the SessionStart hook
+   injects a `[Handover] pending:` line into the next session start and
+   clears the file (one-shot).
+3. Fork the current session as the pre-compact backup (client session list,
+   or CLI where supported; the transcript
+   `~/.zcode/cli/rollout/model-io-<session-id>.jsonl` survives compaction
+   regardless).
+4. Run `/compact` — the `[Handover]` line then points the fresh context at
+   the doc; read it and continue from its Next steps.
+
 ### Verify
 
 ```bash
@@ -110,7 +142,7 @@ node --test "test/*.test.mjs"    # contract tests
 
 ```
 templates/agents/       ← the six shells (shipped; copied to ~/.zcode/agents)
-src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, state
+src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, handover, state
 hooks/                  ← SessionStart / PreToolUse(Agent|Task) / PostToolUseFailure
 scripts/discover-models.mjs ← enumerate ZCode-configured models for /switchman-setup
 commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
@@ -138,7 +170,9 @@ Design rules inherited from the source project:
    docs, deny hints, and the banner all reference it. Never rename a shell in
    a minor release.
 3. **State files** — `routing.json` (`down_agents` + `down_expiry`),
-   `failures.log` (JSONL).
+   `failures.log` (JSONL), plus the project-local
+   `.switchman/handover.json` pointer (written by `/switchman-handover`,
+   consumed once by the SessionStart hook).
 4. **Deny appendix** — every denial states the lane/shell to use instead.
 
 ## Roadmap
