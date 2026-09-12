@@ -34,7 +34,8 @@ dispatch, trip circuit breakers on repeated failures, and respect pool quota.
 - **Routing MCP server** — `route_query`, `registry_list`, `breaker_status`.
 - **CLI** — `scripts/route-cli.mjs` (deterministic JSON output) and
   `scripts/gen-shells.mjs` (generates `agents/*.md` + registry from config).
-- **Commands & skill** — `/handover`, `/doctor`, and the `switchman-routing`
+- **Commands & skill** — `/setup` (conversational first-run configuration
+  with model discovery), `/handover`, `/doctor`, and the `switchman-routing`
   dispatch-protocol skill.
 
 ## Quick start
@@ -47,7 +48,12 @@ checks this first.
 ```bash
 # 1. Install the plugin (marketplace, or point ZCode at this directory)
 
-# 2. Create your own shell matrix — never commit it
+# 2. Build your shell matrix — pick one:
+#    a) conversational setup (discovers your ZCode models, asks pool/lane
+#       questions, writes config/matrix.json for you):
+/zcode-switchman:setup
+#
+#    b) manual:
 cp config/matrix.example.json config/matrix.json
 $EDITOR config/matrix.json     # fill in pools, model bindings, lanes
 

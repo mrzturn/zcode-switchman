@@ -31,8 +31,8 @@ ZCode 插件：把多模型子代理派发变成确定性的、策略驱动的�
 - **路由 MCP server**——`route_query`、`registry_list`、`breaker_status`。
 - **CLI**——`scripts/route-cli.mjs`（确定性 JSON 输出）与
   `scripts/gen-shells.mjs`（由配置生成 `agents/*.md` 与 registry）。
-- **命令与技能**——`/handover`、`/doctor` 与 `switchman-routing`
-  派发协议技能。
+- **命令与技能**——`/setup`（对话式首配，含模型自动发现）、`/handover`、
+  `/doctor` 与 `switchman-routing` 派发协议技能。
 
 ## 快速开始
 
@@ -43,7 +43,11 @@ ZCode 插件：把多模型子代理派发变成确定性的、策略驱动的�
 ```bash
 # 1. 安装插件（marketplace，或让 ZCode 指向本目录）
 
-# 2. 生成自己的壳矩阵——不要提交
+# 2. 生成壳矩阵——二选一：
+#    a) 对话式配置（自动发现 ZCode 可用模型，问答式建池/排档，代写 config/matrix.json）：
+/zcode-switchman:setup
+#
+#    b) 手动：
 cp config/matrix.example.json config/matrix.json
 $EDITOR config/matrix.json     # 填入池、模型绑定、六档链
 
