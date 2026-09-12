@@ -1,5 +1,5 @@
 {
-  "description": "zcode-switchman routing hooks: session banner, dispatch gate, failure breaker.",
+  "description": "zcode-switchman routing hooks: session banner, language gate, dispatch gate, failure breaker.",
   "hooks": {
     "SessionStart": [
       {
@@ -15,16 +15,43 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/user-prompt-submit.mjs"],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-switchman: applying project language rule…"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Task",
+        "matcher": "Agent|Task|Write|Edit|Bash",
         "hooks": [
           {
             "type": "process",
             "command": "node",
             "args": ["${ZCODE_PLUGIN_ROOT}/hooks/pre-tool-use.mjs"],
             "timeoutMs": 3000,
-            "statusMessage": "zcode-switchman: checking dispatch gate…"
+            "statusMessage": "zcode-switchman: checking gates…"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/lang-capture.mjs"],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-switchman: capturing language preference…"
           }
         ]
       }

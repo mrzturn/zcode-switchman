@@ -67,9 +67,24 @@ a conversational one via `/switchman-setup`.
   root's `.switchman/`, never scattered in source directories; the rule is
   carried by the banner, the routing skill, the shell templates, and the
   delegation template.
-- **Commands & skill** — `/switchman-setup` (conversational model rebinding),
+- **Project language preference** — per-project conversation / comments / docs
+  language (`<project>/.switchman/settings.json`, read-only AGENTS.md marker
+  fallback). First run on an unconfigured project: before mutating anything,
+  the model must ask once — three `switchman-lang n/3` questions via
+  AskUserQuestion — while Bash/Write/Edit and shell dispatches are
+  gate-denied. The plugin captures the answers and persists them itself, and
+  a `[LANG]` iron-rule line is re-injected at session start and every turn
+  (a user's ad-hoc language request stays a single-turn exception).
+  Declining writes a session waiver and the ask stops resurfacing.
+- **Commands & skills** — `/switchman-setup` (conversational model rebinding),
   `/switchman-doctor`, `/switchman-handover` (summarize → doc → fork backup →
-  compact → continue), and the `switchman-routing` dispatch-protocol skill.
+  compact → continue), `/switchman-lang` (show / reconfigure the language
+  preference), plus four bundled skills: `switchman-routing`
+  (dispatch protocol) and three companions ported from the source project —
+  `git-commit-message` (deliver commit text only, never runs git),
+  `requirement-docs` (requirements/PRD/design doc spec archived under
+  `docs/requirements-and-design/`), and `db-query` (read-only MySQL/Redis
+  verification via built-in scripts; refuses all writes).
 
 ## Quick start
 
@@ -149,11 +164,14 @@ node --test "test/*.test.mjs"    # contract tests
 
 ```
 templates/agents/       ← the six shells (shipped; self-provisioned to ~/.zcode/agents)
-src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, handover, state, provision
-hooks/                  ← SessionStart (provision + banner) / PreToolUse(Agent|Task) / PostToolUseFailure
+src/lib/*.mjs           ← shared core: shells (fleet table), meta, breaker, handover, state, provision, lang
+hooks/                  ← SessionStart (provision + banner + [LANG]) · UserPromptSubmit ([LANG] per turn)
+                          · PreToolUse(Agent|Task|Write|Edit|Bash) · PostToolUse(AskUserQuestion)
+                          · PostToolUseFailure
 scripts/discover-models.mjs ← enumerate ZCode-configured models for /switchman-setup
-commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
-skills/switchman-routing/   ← dispatch protocol (lanes, ROUTE_META, failure handling)
+commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover · /switchman-lang
+skills/                    ← switchman-routing (dispatch protocol) + three companions:
+                             git-commit-message · requirement-docs · db-query (read-only DB)
 assets/delegation-template.md ← the DELEGATION_V1 dispatch prompt template
 test/                   ← contract tests (meta fixtures, fleet, provision, hook smoke)
 ```
@@ -185,6 +203,12 @@ Design rules inherited from the source project:
    session start by `src/lib/provision.mjs`); the `model:` line is user-owned
    and preserved verbatim across syncs. Templates ship `model: inherit`; the
    plugin never picks, validates, or judges models.
+6. **[LANG] line & first-run ask** — the project language preference lives at
+   `<project>/.switchman/settings.json` (AGENTS.md marker fallback); while it
+   is absent and not waived, mutation tools and shell dispatches are denied
+   until the three `switchman-lang` questions are answered and saved (plugin
+   capture, or the model writing the settings file / a session waiver file).
+   Behavior is pinned by `test/lang.test.mjs`.
 
 ## Roadmap
 

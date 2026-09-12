@@ -13,6 +13,8 @@
  *               session (created/updated shells; user model lines preserved)
  *   [Breaker]   currently down shells, if any
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
+ *   [LANG]      project language preference iron rule, or the first-run ask
+ *               directive while unconfigured (src/lib/lang.mjs)
  *   [Handover]  pending handover doc, injected once, then the pointer is
  *               cleared (written by /switchman-handover)
  */
@@ -24,6 +26,7 @@ import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
 import { SHELLS } from "../src/lib/shells.mjs";
 import { readPointer, clearPointer } from "../src/lib/handover.mjs";
 import { provisionShells } from "../src/lib/provision.mjs";
+import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -117,6 +120,19 @@ function handoverLine(projectDir) {
   return `[Handover] pending: read ${ptr.path} and continue from its next steps`;
 }
 
+/** [LANG] iron-rule line when configured; first-run ask directive while not (fail-open, never throws) */
+function langLine(projectDir, sessionId) {
+  if (!projectDir) return null;
+  try {
+    const loaded = loadLangConfig(projectDir);
+    if (loaded) return renderLangLine(loaded.cfg, loaded.source);
+    if (!langWaivedFor(projectDir, sessionId)) return renderAskDirective();
+  } catch (err) {
+    process.stderr.write(`[zcode-switchman] lang fail-open: ${err}\n`);
+  }
+  return null;
+}
+
 try {
   const payload = readStdinPayload();
   const sessionId =
@@ -141,6 +157,8 @@ try {
   lines.push(shellLine(), bindingLine());
   if (sync) lines.push(sync);
   lines.push(breakerLine(routing), workspaceLine());
+  const lang = langLine(projectDir, sessionId);
+  if (lang) lines.push(lang);
   const handover = handoverLine(projectDir);
   if (handover) lines.push(handover);
 

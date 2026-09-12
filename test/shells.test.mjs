@@ -21,9 +21,19 @@ import assert from "node:assert/strict";
 const PLUGIN_ROOT = path.resolve(new URL("..", import.meta.url).pathname);
 const hook = (name) => path.join(PLUGIN_ROOT, "hooks", name);
 
+// Sandbox project with a configured language preference: without it the lang
+// gate (see lang.test.mjs) would intercept every mutation/dispatch the
+// dispatch-gate smoke tests below want to exercise.
+const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-project-"));
+fs.mkdirSync(path.join(projectDir, ".switchman"), { recursive: true });
+fs.writeFileSync(
+  path.join(projectDir, ".switchman", "settings.json"),
+  JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" } }),
+);
+
 function runHook(file, payload) {
   const r = spawnSync(process.execPath, [hook(file)], {
-    input: payload === undefined ? "" : JSON.stringify(payload),
+    input: payload === undefined ? "" : JSON.stringify({ cwd: projectDir, ...payload }),
     encoding: "utf8",
     env: { ...process.env, ZCODE_SWITCHMAN_STATE: stateDir, ZCODE_SWITCHMAN_AGENTS_DIR: agentsDir },
   });
@@ -130,6 +140,7 @@ test("hook smoke: session-start auto-provisions the fleet and renders the banner
   assert.match(msg, /\[Binding\] 6\/6 shells model-bound/); // provisioned all-inherit
   assert.match(msg, /\[Breaker\] down: none/);
   assert.match(msg, /\[Workspace\] intermediate artifacts → <project>/);
+  assert.match(msg, /\[LANG\] conversation=en comments=en docs=en \(source: project settings\)/);
   assert.doesNotMatch(msg, /\[Session\]/); // no session id in the payload
   assert.doesNotMatch(msg, /\[Handover\]/); // no pointer anywhere
   for (const name of Object.keys(SHELLS)) {

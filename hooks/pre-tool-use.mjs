@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 /**
- * PreToolUse hook (matcher: Agent|Task): the dispatch gate for the fixed
- * switchman fleet. Three gates per shell dispatch, in order:
- *   1. breaker     — windowed failure circuit, auto-heals (~10 min)
- *   2. ROUTE_META  — missing/malformed/illegal/missing-required → deny + sample
- *   3. semantics   — ro↔rw / modality
+ * PreToolUse hook (matcher: Agent|Task|Write|Edit|Bash). Two gate layers:
+ *
+ * 0. lang gate (all matched tools) — while the project language preference is
+ *    unconfigured (.switchman/settings.json absent, AGENTS.md marker absent,
+ *    no session waiver), deny Write/Edit/Bash and Agent/Task dispatches with
+ *    an ask-first error; reads stay allowed. Writes targeting the language
+ *    settings file or the waiver file pass (fallback persistence paths).
+ *    See src/lib/lang.mjs.
+ * 1. dispatch gates (Agent|Task only) — three gates per shell dispatch:
+ *   a. breaker     — windowed failure circuit, auto-heals (~10 min)
+ *   b. ROUTE_META  — missing/malformed/illegal/missing-required → deny + sample
+ *   c. semantics   — ro↔rw / modality
  * Dispatches to non-switchman agents (built-ins etc.) are out of scope: allow.
  *
  * Models are the user's own per-shell frontmatter choice; the gate never
@@ -16,6 +23,13 @@
 import { parseRouteMeta, metaErrorHint } from "../src/lib/meta.mjs";
 import { loadRouting, cleanExpired, agentDown, extractSubagent } from "../src/lib/breaker.mjs";
 import { shellInfo } from "../src/lib/shells.mjs";
+import {
+  LANG_GATE_TOOLS,
+  loadLangConfig,
+  langGateDecision,
+  langWaivedFor,
+  isLangWriteAllowed,
+} from "../src/lib/lang.mjs";
 
 function deny(reason) {
   process.stdout.write(
@@ -42,7 +56,34 @@ try {
   const payload = raw.trim() ? JSON.parse(raw) : {};
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) process.exit(0);
   const tool = payload.tool_name || payload.toolName || "";
-  if (tool !== "Agent" && tool !== "Task") process.exit(0); // matcher backstop
+  const toolLc = tool.toLowerCase();
+
+  // Gate 0: language preference (all matched tools; disk check per gated call, cheap)
+  if (LANG_GATE_TOOLS.has(toolLc)) {
+    const projectDir = payload.cwd ||
+      process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    if (projectDir && !isLangWriteAllowed(toolLc, payload.tool_input, projectDir)) {
+      const sessionId = payload.session_id ||
+        process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
+      let reason = null;
+      try {
+        reason = langGateDecision({
+          tool: toolLc,
+          configured: !!loadLangConfig(projectDir),
+          askEnabled: true,
+          waived: langWaivedFor(projectDir, sessionId),
+        });
+      } catch (err) {
+        process.stderr.write(`[zcode-switchman] lang gate fail-open: ${err}\n`);
+      }
+      if (reason) {
+        deny(reason);
+        process.exit(0);
+      }
+    }
+  }
+
+  if (tool !== "Agent" && tool !== "Task") process.exit(0); // dispatch gates below are Agent|Task-only
   const agent = extractSubagent(payload.tool_input);
   if (!agent) process.exit(0); // no agent name → allow
 

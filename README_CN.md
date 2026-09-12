@@ -55,9 +55,20 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 - **项目工作区 `.switchman/`**——所有中间产物（壳的落盘输出、scratch
   分析、交接文档）统一放项目根的 `.switchman/`，绝不散落源码目录；该规则
   由横幅、routing 技能、壳模板与委派模板四处共同承载。
+- **项目语言偏好**——每项目的对话 / 注释 / 文档语言（
+  `<project>/.switchman/settings.json`，AGENTS.md marker 只读回退）。未配置
+  项目首次使用：改动任何东西之前，模型必须先问一次——经 AskUserQuestion 的
+  三道 `switchman-lang n/3` 问题——期间 Bash/Write/Edit 与壳派发被门禁拦截；
+  答案由插件捕获落盘，之后 `[LANG]` 铁律行在会话启动与每轮用户输入时重注入
+  （用户临时的语言要求只对单轮生效）。用户拒绝则写入会话豁免，本轮会话不再
+  追问。
 - **命令与技能**——`/switchman-setup`（对话式改绑模型）、`/switchman-doctor`、
-  `/switchman-handover`（总结→交接文档→fork 备份→compact→续作）与
-  `switchman-routing` 派发协议技能。
+  `/switchman-handover`（总结→交接文档→fork 备份→compact→续作）、
+  `/switchman-lang`（查看/重设语言偏好），外加四个随插件技能：
+  `switchman-routing`（派发协议）与三个自源项目平移的同伴技能——
+  `git-commit-message`（只产出提交文案，绝不执行 git）、`requirement-docs`
+  （需求/PRD/设计文档规范，归档到 `docs/requirements-and-design/`）、
+  `db-query`（内置脚本只读核验 MySQL/Redis，拒绝一切写操作）。
 
 ## 快速开始
 
@@ -128,11 +139,14 @@ node --test "test/*.test.mjs"    # 契约测试
 
 ```
 templates/agents/       ← 六壳正本（随插件分发；会话启动自动装配到 ~/.zcode/agents）
-src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / handover / state / provision
-hooks/                  ← SessionStart（装配 + 横幅）/ PreToolUse(Agent|Task) / PostToolUseFailure
+src/lib/*.mjs           ← 共享核心：shells（编队表）/ meta / breaker / handover / state / provision / lang
+hooks/                  ← SessionStart（装配 + 横幅 + [LANG]）· UserPromptSubmit（每轮 [LANG]）
+                          · PreToolUse(Agent|Task|Write|Edit|Bash) · PostToolUse(AskUserQuestion)
+                          · PostToolUseFailure
 scripts/discover-models.mjs ← 枚举 ZCode 已配置模型（供 /switchman-setup）
-commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover
-skills/switchman-routing/   ← 派发协议（六档、ROUTE_META、失败处理）
+commands/               ← /switchman-setup · /switchman-doctor · /switchman-handover · /switchman-lang
+skills/                    ← switchman-routing（派发协议）+ 三个同伴技能：
+                             git-commit-message · requirement-docs · db-query（只读 DB）
 assets/delegation-template.md ← DELEGATION_V1 委派 prompt 模板
 test/                   ← 契约测试（meta fixtures、编队、装配、hook 冒烟）
 ```
@@ -157,6 +171,11 @@ test/                   ← 契约测试（meta fixtures、编队、装配、hoo
 5. **model 行归属**——壳正文归模板所有（每次会话启动由
    `src/lib/provision.mjs` 自动同步）；`model:` 行归用户所有，同步时原样
    保留。模板默认 `model: inherit`；插件永不挑选、校验、评判模型。
+6. **[LANG] 行与首次三问**——项目语言偏好存于
+   `<project>/.switchman/settings.json`（AGENTS.md marker 只读回退）；该文件
+   缺失且未被豁免时，改动类工具与壳派发一律拦截，直到三道
+   `switchman-lang` 问题被回答并落盘（插件捕获，或模型写 settings 文件 /
+   会话豁免文件）。行为由 `test/lang.test.mjs` 锁定。
 
 ## 路线图
 
