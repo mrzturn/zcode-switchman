@@ -30,24 +30,25 @@ made by hand in `~/.zcode/agents` or conversationally via `/switchman-setup`.
   is assigned dynamically by each dispatch prompt (DELEGATION_V1).
 - A shell **without** a bound model follows the session default model — the
   plugin works out of the box; binding models adds real multi-model division
-  of labor.
-- Reviews are hetero-family by design: the review shell should run a model
-  from a different family than the producer.
+  of labor. Models are never inspected or judged by the plugin: whatever you
+  bind (or inherit) is what runs.
 
 ## Features
 
 - **Six fixed shells** — shipped as templates, installed to
   `~/.zcode/agents/` (they show up in Settings → Subagents like any other
   sub-agent).
-- **Model binding = one line** — `model: "..."` in the shell's frontmatter;
-  `/switchman-setup` writes it for you after discovering your ZCode models
-  (`scripts/discover-models.mjs`; API keys are never read or printed).
+- **Model binding = one line** — `model: "..."`, or `model: inherit` to
+  follow the default model, in the shell's frontmatter; `/switchman-setup`
+  writes it for you (proposing `inherit` by default) and uses
+  `scripts/discover-models.mjs` when you choose to pin a model; API keys are
+  never read or printed.
 - **Dispatch gate** (PreToolUse hook) — three gates per shell dispatch:
   failure breaker → `ROUTE_META` validation → semantics (rw tasks cannot go
-  to read-only shells, image tasks only to the vision shell, same-family
-  reviews denied). Non-switchman agents pass untouched.
+  to read-only shells, image tasks only to the vision shell). Non-switchman
+  agents pass untouched.
 - **ROUTE_META contract** — one metadata line in every shell dispatch prompt:
-  `ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}`
+  `ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}`
 - **Circuit breaker** (PostToolUseFailure hook) — 2 failures in 10 min trips a
   10-min auto-recovering breaker on that shell; not-found errors stay scoped
   to the requested name so typos never poison healthy shells.
@@ -76,13 +77,13 @@ checks this first.
 mkdir -p ~/.zcode/agents
 cp <plugin-root>/templates/agents/switchman-*.md ~/.zcode/agents/
 $EDITOR ~/.zcode/agents/switchman-main.md   # add:  model: "your-model-id"
+                                            # or:   model: inherit
 
 # 3. Start a new ZCode session — the banner appears at session start
 ```
 
 State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`);
-it holds `shells.json` (family map for the review gate), `routing.json`
-(breaker), and `failures.log`.
+it holds `routing.json` (breaker) and `failures.log`.
 
 Notes from dispatch-level acceptance testing:
 
@@ -101,7 +102,7 @@ Notes from dispatch-level acceptance testing:
 ### Verify
 
 ```bash
-/switchman-doctor                # in ZCode: 8-point self-check
+/switchman-doctor                # in ZCode: 7-point self-check
 node --test "test/*.test.mjs"    # contract tests
 ```
 
@@ -129,15 +130,15 @@ Design rules inherited from the source project:
 
 ## Contracts (do not break casually)
 
-1. **ROUTE_META line** — six whitelisted keys, lowercased values, parsed
+1. **ROUTE_META line** — five whitelisted keys, lowercased values, parsed
    within the first 4000 chars; `role` / `capability` / `source` are required
-   safety fields; `producer_family` is a free-form lowercase token. Behavior
-   is pinned by `test/meta.test.mjs`.
+   safety fields; unknown keys are ignored. Behavior is pinned by
+   `test/meta.test.mjs`.
 2. **Shell names** — `switchman-<lane>` is a stable identifier: prompts,
    docs, deny hints, and the banner all reference it. Never rename a shell in
    a minor release.
-3. **State files** — `shells.json` (name → `{family}`), `routing.json`
-   (`down_agents` + `down_expiry`), `failures.log` (JSONL).
+3. **State files** — `routing.json` (`down_agents` + `down_expiry`),
+   `failures.log` (JSONL).
 4. **Deny appendix** — every denial states the lane/shell to use instead.
 
 ## Roadmap

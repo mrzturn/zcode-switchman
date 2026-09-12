@@ -1,6 +1,6 @@
 /**
- * shells.test.mjs — the static fleet table, the family map, and process-level
- * hook smoke tests (real stdin/stdout protocol over a sandbox state dir).
+ * shells.test.mjs — the static fleet table and process-level hook smoke
+ * tests (real stdin/stdout protocol over a sandbox state dir).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -12,8 +12,7 @@ const agentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-agents-"));
 process.env.ZCODE_SWITCHMAN_STATE = stateDir;
 process.env.ZCODE_SWITCHMAN_AGENTS_DIR = agentsDir;
 
-const { SHELLS, LANES, shellInfo, laneOfShell, loadShellFamilies } =
-  await import("../src/lib/shells.mjs");
+const { SHELLS, LANES, shellInfo, laneOfShell } = await import("../src/lib/shells.mjs");
 const { writeJsonAtomic, statePaths } = await import("../src/lib/state.mjs");
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -44,7 +43,7 @@ const dispatch = (agent, prompt) => ({
 });
 
 const META =
-  'ROUTE_META {"lane":"main","role":"programmer","producer_family":"glm","capability":"rw","modality":"text","source":"auto"}';
+  'ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}';
 
 test("fleet table: six shells, one per lane, sane capabilities", () => {
   assert.deepEqual(Object.keys(SHELLS).length, 6);
@@ -65,23 +64,6 @@ test("shellInfo / laneOfShell", () => {
   assert.equal(shellInfo("general-purpose"), null);
   assert.equal(laneOfShell("switchman-hard"), "hard");
   assert.equal(laneOfShell("nope"), null);
-});
-
-test("loadShellFamilies: missing → {}, valid → lowercase map, corrupt → {}", () => {
-  fs.rmSync(statePaths.shells(), { force: true });
-  assert.deepEqual(loadShellFamilies(), {});
-  writeJsonAtomic(statePaths.shells(), {
-    "switchman-review": { family: "GLM" },
-    "switchman-main": { family: "claude" },
-    junk: "x",
-  });
-  assert.deepEqual(loadShellFamilies(), {
-    "switchman-review": "glm",
-    "switchman-main": "claude",
-  });
-  writeJsonAtomic(statePaths.shells(), { broken: [1, 2] });
-  assert.deepEqual(loadShellFamilies(), {});
-  fs.rmSync(statePaths.shells(), { force: true });
 });
 
 test("templates ship all six shells with a name matching the file", () => {
@@ -113,16 +95,11 @@ test("hook smoke: image task to a text shell → deny", () => {
   assert.match(denyReason(out), /not a vision shell/);
 });
 
-test("hook smoke: same-family reviewer → deny (hetero-family gate)", () => {
-  writeJsonAtomic(statePaths.shells(), { "switchman-review": { family: "glm" } });
+test("hook smoke: reviewer dispatch passes; retired producer_family key is ignored", () => {
+  // The hetero-family review gate is gone: models are user-bound, never judged.
   const meta =
     'ROUTE_META {"lane":"review","role":"reviewer","producer_family":"glm","capability":"ro","modality":"text","source":"auto"}';
-  const out = runHook("pre-tool-use.mjs", dispatch("switchman-review", meta));
-  assert.match(denyReason(out), /hetero-perspective/);
-  // different family passes
-  const meta2 = meta.replace('"producer_family":"glm"', '"producer_family":"claude"');
-  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-review", meta2)).stdout, "");
-  fs.rmSync(statePaths.shells(), { force: true });
+  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-review", meta)).stdout, "");
 });
 
 test("hook smoke: valid dispatch and foreign agents pass silently", () => {

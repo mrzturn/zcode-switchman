@@ -4,15 +4,18 @@
  * switchman fleet. Three gates per shell dispatch, in order:
  *   1. breaker     — windowed failure circuit, auto-heals (~10 min)
  *   2. ROUTE_META  — missing/malformed/illegal/missing-required → deny + sample
- *   3. semantics   — ro↔rw / modality / hetero-family review
+ *   3. semantics   — ro↔rw / modality
  * Dispatches to non-switchman agents (built-ins etc.) are out of scope: allow.
+ *
+ * Models are the user's own per-shell frontmatter choice; the gate never
+ * inspects or judges them.
  *
  * fail-open: unparseable payload or any unexpected error → allow with a
  * stderr note. Never block work because the gate is broken.
  */
 import { parseRouteMeta, metaErrorHint } from "../src/lib/meta.mjs";
 import { loadRouting, cleanExpired, agentDown, extractSubagent } from "../src/lib/breaker.mjs";
-import { shellInfo, loadShellFamilies } from "../src/lib/shells.mjs";
+import { shellInfo } from "../src/lib/shells.mjs";
 
 function deny(reason) {
   process.stdout.write(
@@ -79,14 +82,6 @@ try {
     deny(`${agent} is not a vision shell; it cannot take modality=${meta.modality} tasks` +
       ", dispatch image tasks to switchman-vision");
     process.exit(0);
-  }
-  if (meta.role === "reviewer" && meta.producer_family) {
-    const family = loadShellFamilies()[agent];
-    if (family && meta.producer_family === family) {
-      deny(`${agent} shares the producer family (${family}); review must be hetero-perspective` +
-        ", rebind shell families via /switchman-setup or review with a different-family shell");
-      process.exit(0);
-    }
   }
   process.exit(0);
 } catch (err) {

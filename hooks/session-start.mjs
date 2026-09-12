@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
-import { SHELLS, loadShellFamilies } from "../src/lib/shells.mjs";
+import { SHELLS } from "../src/lib/shells.mjs";
 
 function agentsDir() {
   return process.env.ZCODE_SWITCHMAN_AGENTS_DIR ||
@@ -56,10 +56,7 @@ function bindingLine() {
 function breakerLine(routing) {
   const down = Object.keys(routing.down_agents || {}).sort();
   const downTxt = down.length ? down.join(", ") : "none";
-  const familyNote = loadShellFamilies()["switchman-review"]
-    ? ""
-    : " | review hetero-family gate inactive (no family bound — see /switchman-setup)";
-  return `[Breaker] down: ${downTxt}${familyNote}`;
+  return `[Breaker] down: ${downTxt}`;
 }
 
 try {

@@ -5,7 +5,6 @@
  * line in ~/.zcode/agents (written by /switchman-setup or by hand) and is
  * deliberately NOT modeled here — swapping a model never changes a shell name.
  */
-import { readJson, statePaths } from "./state.mjs";
 
 export const LANES = ["economy", "mechanical", "main", "hard", "vision", "review"];
 
@@ -43,20 +42,4 @@ export function shellInfo(name) {
 export function laneOfShell(name) {
   const s = shellInfo(name);
   return s ? s.lane : null;
-}
-
-/**
- * Per-shell model-family map (state/shells.json), written by /switchman-setup:
- *   { "<shell-name>": { "family": "<lowercase family token>" } }
- * Feeds the hetero-family review gate; absent/corrupt file → {} (gate skips).
- */
-export function loadShellFamilies() {
-  const doc = readJson(statePaths.shells());
-  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return {};
-  const out = {};
-  for (const [name, entry] of Object.entries(doc)) {
-    const family = entry && typeof entry === "object" ? entry.family : null;
-    if (typeof family === "string" && family.trim()) out[name] = family.trim().toLowerCase();
-  }
-  return out;
 }

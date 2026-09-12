@@ -1,5 +1,5 @@
 ---
-description: Interactive conversational setup for zcode-switchman — install the six shell templates, bind models per lane, record families
+description: Interactive conversational setup for zcode-switchman — install the six shell templates and bind models per lane
 ---
 
 # /switchman-setup — zcode-switchman conversational configuration
@@ -16,8 +16,8 @@ User shell directory: `$ZCODE_SWITCHMAN_AGENTS_DIR` if set, else
 `~/.zcode/agents`. If any `switchman-*.md` files exist there, switch to
 **edit mode**: read them, summarize current bindings in a compact table
 (shell → model or "unbound"), and ask what to change (rebind a lane, bind
-remaining lanes, update families). Apply only what is asked, then jump to
-Step 4. Otherwise run **first-time setup** below.
+remaining lanes). Apply only what is asked, then jump to Step 4. Otherwise
+run **first-time setup** below.
 
 ## Step 1 — runtime + model discovery
 
@@ -50,36 +50,33 @@ Present the six shells (they do not exist on disk yet; setup creates them)：
 | `switchman-review` | review | ro | high | review-only second pair of eyes |
 
 For each shell ask: "which model?" — the user answers with a table number, a
-model id, or `skip`. Defaults to propose (user confirms or overrides):
+model id, `inherit`, or `skip`. Default to propose: **`inherit`** for every
+lane (the shell then runs on ZCode's default model at dispatch time — nothing
+is pinned). If the user wants to pin, suggest per lane:
 
 - `main`: the strongest general model they use daily;
 - `hard`: their strongest reasoner (may equal main);
 - `mechanical` / `economy`: their cheapest/fastest model;
-- `vision`: a model with `vision=true` (if none, mark unbound and say so);
-- `review`: a model from a **different provider family** than `main` — this
-  feeds the hetero-family review gate; if the user picks the same family,
-  warn once and continue (the gate will deny same-family reviews).
+- `vision`: a model with `vision=true` (if none, mark unbound and say so).
 
-`skip` leaves the shell unbound: it then follows the session default model.
+`inherit` writes `model: inherit` in the frontmatter: the shell inherits the
+default model. `skip` leaves the shell unbound: it writes no `model:` line at
+all, and the shell likewise follows the session default model.
+
+Model choices are never validated or judged by the plugin — whatever the user
+pins is what runs; the gate only checks lane capability/modality, not models.
 
 ## Step 3 — install shells
 
 1. For each shell, read the template
    `${ZCODE_PLUGIN_ROOT}/templates/agents/<shell>.md` and write it to the
    user shell directory (Step 0 path), inserting the chosen binding as a
-   `model: "<model-id>"` line in the frontmatter (after `color:`). A skipped
-   shell gets no `model:` line at all — do not write placeholders.
+   `model: "<model-id>"` line in the frontmatter (after `color:`) — or
+   `model: inherit` when the user chose `inherit`. A skipped shell gets no
+   `model:` line at all — do not write placeholders.
    Existing files: show the diff intent and ask before overwriting.
-2. Write the family map for every **bound** shell to
-   `$ZCODE_SWITCHMAN_STATE/shells.json` (default `~/.zcode/state/shells.json`):
-
-   ```json
-   { "switchman-main": { "family": "claude" }, "switchman-review": { "family": "glm" } }
-   ```
-
-   Family = real model lineage as a lowercase token (e.g. `glm`, `claude`,
-   `gpt`, `gemini`, `grok`, `deepseek`, `qwen`, `kimi`). Derive it from the
-   provider identity; confirm with the user. A provider name is NOT a family.
+2. No other state is written: model bindings live only in the shell
+   frontmatter, and the plugin never derives or stores model metadata.
 
 ## Step 4 — close
 

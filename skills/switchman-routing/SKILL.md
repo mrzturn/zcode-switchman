@@ -9,7 +9,8 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 
 - The fleet is **fixed**: six shells, one per lane. Shell names never change —
   only the user-bound model behind each shell does (a `model:` line in
-  `~/.zcode/agents/<shell>.md`).
+  `~/.zcode/agents/<shell>.md`; the literal value `inherit` means the shell
+  follows the default model).
 - A shell binds only *role class × tool whitelist × thought level*; the role
   is assigned dynamically by each dispatch prompt (DELEGATION_V1). The role
   contract and task live in the prompt, never in the shell.
@@ -26,9 +27,8 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 | vision | `switchman-vision` | ro (image) | medium | image understanding / screenshot work |
 | review | `switchman-review` | ro | high | review-only second pair of eyes |
 
-- Reviews are hetero-family by design: `switchman-review` must run a model
-  from a different family than the producer. Families are bound via
-  `/switchman-setup` (state/shells.json); the gate is inactive until then.
+- Reviews are plain second-opinion dispatches: the review shell runs whatever
+  model the user bound in its frontmatter; the gate never inspects models.
 
 ## Dispatching
 
@@ -39,7 +39,7 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
    the ROUTE_META line, e.g.:
 
    ```text
-   ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}
+   ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}
    ```
 
 3. If a dispatch is denied, the deny reason states why and which lane to use
@@ -55,8 +55,9 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
   values make the whole META bad → deny.
 - `lane` is optional (the shell name already implies it); when present it
   must be one of the six lanes.
-- `producer_family` = your own real model family as a lowercase token
-  (e.g. `glm`, `claude`, `gpt`); when unsure, omit it rather than invent one.
+- Models are the user's own per-shell frontmatter choice (`model: "..."` or
+  `model: inherit`); the gate checks lane capability/modality only, never
+  models.
 
 ## Failure handling
 

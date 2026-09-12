@@ -26,21 +26,21 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 - 壳只绑定 *职责类别 × 工具白名单 × 思考档位*；角色由每次委派 prompt
   动态赋予（DELEGATION_V1）。
 - 壳**未绑定模型**时跟随会话默认模型——零配置即可用；绑了模型才有真正的
-  多模型分工。
-- 复审按异族设计：review 壳应绑定与 producer 不同 family 的模型。
+  多模型分工。插件从不检查、从不评判模型：你绑什么（或继承什么）就跑什么。
 
 ## 功能
 
 - **六个固定壳**——以模板随插件分发，安装到 `~/.zcode/agents/`（在
   Settings → Subagents 里与其他子代理一样可见）。
-- **绑定模型 = 一行**——壳 frontmatter 里的 `model: "..."`；
-  `/switchman-setup` 会先发现你的 ZCode 模型（`scripts/discover-models.mjs`，
-  绝不读取/打印 API key）再替你写入。
+- **绑定模型 = 一行**——壳 frontmatter 里的 `model: "..."`，或
+  `model: inherit` 表示跟随默认模型；`/switchman-setup` 替你写入（默认
+  提议 `inherit`），选钉死模型时才用 `scripts/discover-models.mjs` 发现
+  你的 ZCode 模型（绝不读取/打印 API key）。
 - **派发门禁**（PreToolUse hook）——每个壳派发过三闸：失败熔断 →
   `ROUTE_META` 校验 → 语义（rw 任务不能派给只读壳、image 任务只能派给
-  视觉壳、同族复审拒绝）。非 switchman 代理原样放行。
+  视觉壳）。非 switchman 代理原样放行。
 - **ROUTE_META 契约**——每个壳委派 prompt 必带一行元数据：
-  `ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}`
+  `ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}`
 - **熔断自愈**（PostToolUseFailure hook）——10 分钟窗口内失败 2 次触发该壳
   10 分钟自动恢复的熔断；not-found 类错误只熔断请求名本身，拼错名不会
   牵连健康壳。
@@ -66,13 +66,13 @@ ZCode 插件：给你一支**固定六档子代理编队**——六类职责壳�
 mkdir -p ~/.zcode/agents
 cp <插件目录>/templates/agents/switchman-*.md ~/.zcode/agents/
 $EDITOR ~/.zcode/agents/switchman-main.md   # 加一行：  model: "你的模型ID"
+                                            # 或：      model: inherit
 
 # 3. 开一个新 ZCode 会话——启动时会出现横幅
 ```
 
 state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）；
-存放 `shells.json`（family 表，供复审闸使用）、`routing.json`（熔断）与
-`failures.log`。
+存放 `routing.json`（熔断）与 `failures.log`。
 
 派发级实装验收得出的三条结论：
 
@@ -88,7 +88,7 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 ### 验证
 
 ```bash
-/switchman-doctor                # ZCode 内：8 项自检
+/switchman-doctor                # ZCode 内：7 项自检
 node --test "test/*.test.mjs"    # 契约测试
 ```
 
@@ -113,13 +113,13 @@ test/                   ← 契约测试（meta fixtures、编队、hook 冒烟�
 
 ## 契约（勿随意破坏）
 
-1. **ROUTE_META 行**——六个白名单键、值小写、解析前 4000 字符；
-   `role` / `capability` / `source` 为必填安全字段；`producer_family`
-   为自由小写 token。行为由 `test/meta.test.mjs` 锁定。
+1. **ROUTE_META 行**——五个白名单键、值小写、解析前 4000 字符；
+   `role` / `capability` / `source` 为必填安全字段；未知键直接忽略。
+   行为由 `test/meta.test.mjs` 锁定。
 2. **壳名**——`switchman-<档位>` 是稳定标识符：委派 prompt、文档、deny
    附言、横幅都引用它。小版本绝不改壳名。
-3. **state 文件**——`shells.json`（名 → `{family}`）、`routing.json`
-   （`down_agents` + `down_expiry`）、`failures.log`（JSONL）。
+3. **state 文件**——`routing.json`（`down_agents` + `down_expiry`）、
+   `failures.log`（JSONL）。
 4. **deny 附言**——每次拒绝都说明应改用哪个档位/壳。
 
 ## 路线图

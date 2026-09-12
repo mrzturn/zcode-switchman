@@ -44,14 +44,13 @@ ROUTE_META {{META_JSON}}
 - The hook parses the first ROUTE_META line within the first 4000 characters;
   values are lowercased; the three required fields (`role`, `capability`,
   `source`) are hard-checked for presence.
-- Legal values (the fleet is fixed; `producer_family` is free-form but must
-  be a lowercase token):
+- Legal values (the fleet is fixed; models are the user's own per-shell
+  frontmatter choice and are never inspected by the gate):
 
 | Field | Legal values | Meaning / hook behavior |
 |---|---|---|
 | `lane` | economy / mechanical / main / hard / vision / review | Optional (the shell name already implies it); when present it must name the shell's lane. |
-| `role` | planner / reviewer / programmer / tester / uiux / data-analyst / ops / scouter / clerk / observer / expert-alpha / expert-beta / expert-gamma / generic | Dynamic role; `role=reviewer` triggers the hetero-family gate. **Required.** |
-| `producer_family` | your real model family, lowercase (e.g. glm / claude / gpt / gemini / grok / deepseek / qwen / kimi) | The producer's (your) real model lineage. Omit it when unsure rather than inventing one — an invented family silently disables the hetero-family review gate. |
+| `role` | planner / reviewer / programmer / tester / uiux / data-analyst / ops / scouter / clerk / observer / expert-alpha / expert-beta / expert-gamma / generic | Dynamic role. **Required.** |
 | `capability` | ro / rw | Write requirement; an `rw` task dispatched to an ro shell is denied. **Required.** |
 | `modality` | text / image | An `image` task dispatched to a non-vision shell is denied. |
 | `source` | auto / user | `auto` = your own routing decision; `user` = the user named this shell explicitly. **Required.** |
@@ -59,7 +58,7 @@ ROUTE_META {{META_JSON}}
 Sample line (paste-ready):
 
 ```text
-ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","capability":"rw","modality":"text","source":"auto"}
+ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}
 ```
 
 ## Role contract placeholder table
@@ -85,4 +84,3 @@ ROUTE_META {"lane":"main","role":"programmer","producer_family":"your-family","c
 2. Fill `{{OUTPUT_FORMAT}}` per role (e.g. "conclusion / changed files / verification / open issues").
 3. When the user names a specific shell, set `source` to `user`; your own routing decisions use `auto`.
 4. Pick the shell from the session banner's `[Shells]` line; a deny reply states the lane to use instead — re-dispatch there, do not retry the denied shell.
-5. `producer_family` is your own real family; when unsure, omit the field (optional) rather than inventing one.

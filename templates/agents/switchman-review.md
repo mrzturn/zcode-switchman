@@ -1,6 +1,6 @@
 ---
 name: "switchman-review"
-description: "switchman 编队〔档=review·ro·text〕评审壳：只评审不修改，复审须与 producer 异 family。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
+description: "switchman 编队〔档=review·ro·text〕评审壳：只评审不修改。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
 color: red
 thoughtLevel: high
 tools:

@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const VALID = {
-  lane: "main", role: "programmer", producer_family: "glm",
+  lane: "main", role: "programmer",
   capability: "rw", modality: "text", source: "auto",
 };
 const line = (obj) => `ROUTE_META ${JSON.stringify(obj)}`;
@@ -124,17 +124,19 @@ for (const field of ["role", "capability", "modality", "source"]) {
   });
 }
 
-test("producer_family is free-form but must be a lowercase token", () => {
-  for (const fam of ["glm", "claude", "qwen3", "kimi-k2", "gpt"]) {
-    const [meta, err] = parseRouteMeta(line({ ...VALID, producer_family: fam }));
-    ok(meta, err);
-    assert.equal(meta.producer_family, fam);
-  }
-  for (const bad of ["__nope__", "Big Model", "-glm", "glm claude"]) {
-    const [meta, err] = parseRouteMeta(line({ ...VALID, producer_family: bad }));
-    assert.equal(meta, null, `family ${JSON.stringify(bad)} must be invalid`);
-    assert.deepEqual(err, ["invalid", "producer_family", bad.toLowerCase()]); // values are lowercased first
-  }
+test("retired producer_family key is ignored (backward compatible)", () => {
+  // Models are user-bound per shell; the gate never judged them, and the
+  // producer_family key was removed with its hetero-family gate. Prompts
+  // that still carry the key must keep passing, with the key dropped.
+  const [meta, err] = parseRouteMeta(line({ ...VALID, producer_family: "glm" }));
+  const m = ok(meta, err);
+  assert.equal("producer_family" in m, false);
+});
+
+test("producer_family-only payload → malformed (no effective keys)", () => {
+  const [meta, err] = parseRouteMeta('ROUTE_META {"producer_family":"glm"}');
+  assert.equal(meta, null);
+  assert.equal(err, "malformed");
 });
 
 for (const field of ["role", "capability", "source"]) {
@@ -165,5 +167,5 @@ test("metaErrorHint covers every error kind and embeds the sample", () => {
 test("metaSample reflects the fixed fleet", () => {
   const sample = metaSample();
   assert.ok(sample.includes('"lane":"main"'));
-  assert.ok(sample.includes('"producer_family":"your-family"'));
+  assert.ok(!sample.includes("producer_family"));
 });
