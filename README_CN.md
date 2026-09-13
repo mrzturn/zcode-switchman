@@ -61,7 +61,7 @@
 2. **（可选）钉模型。** 默认 `model: inherit` 已经够用；想让某档跑固定模型，跑 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` 行。壳文件在会话启动时快照，改完要重开会话才生效。
 3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发（每轮 `[ROUTE]` token 账铁律兜底），你也可以直接说「这活派给 hard」。每次委派自带 ROUTE_META，门禁自动把关。
 4. **心里没底就体检。** `/switchman-doctor`，七项自检。
-5. **会话跑长了就交接。** `/switchman-handover` 把当前会话总结成 `.switchman/` 下的交接文档并留下指针，你按一次 `/compact`，SessionStart hook 把文档全文注入新上下文，从 Next steps 无缝接着干。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
+5. **会话跑长了就交接。** `/switchman-handover` 把当前会话总结成 `.switchman/` 下的版本化交接文档（`handover.01.md`、`handover.02.md`…每次执行都生成新版本，从不动旧文件），并把 `handover.json` 指针指向最新版；你按一次 `/compact`，SessionStart hook 把文档全文注入新上下文，从 Next steps 无缝接着干。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
 
 state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖），存熔断状态 `routing.json` 和失败记录 `failures.log`。本插件的命令在 `/` 菜单里显示为 `$switchman-setup` 这样的形式，是同一批命令。
 

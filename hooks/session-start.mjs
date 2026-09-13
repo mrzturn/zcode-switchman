@@ -116,7 +116,7 @@ function breakerLine(routing) {
 }
 
 function workspaceLine() {
-  return "[Workspace] intermediate artifacts → <project>/.switchman/ (handover docs under .switchman/<date>/<session>/handover/)";
+  return "[Workspace] intermediate artifacts → <project>/.switchman/ (versioned handover.NN.md docs under .switchman/<date>/<session>/handover/)";
 }
 
 /** Inject the pending handover into the fresh context: full doc text when
