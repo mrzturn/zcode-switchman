@@ -68,6 +68,7 @@ const tierFixture = (sessionId, inputTokens) =>
   writeRollout(sessionId, [rec({ inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }), rec({ inputTokens, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 })].join("\n"));
 for (const [sid, tokens] of [
   ["test-free", 30_000], ["test-frugal", 70_000], ["test-tight", 110_000], ["test-compact", 140_000],
+  ["test-guard-edge", 20_000], // est exactly at a derived guard boundary (tiers [10k,20k,30k])
 ]) tierFixture(sid, tokens);
 
 function runHook(file, payload, extraEnv = {}) {
@@ -151,6 +152,26 @@ test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, wa
   for (const bad of [[1, 2], [30, 20, 10], ["a", "b", "c"], [1, 1, 2], 50000, null]) {
     assert.deepEqual(parseContextSettings(JSON.stringify({ contextTiers: bad })).tiers, [...DEFAULT_CONTEXT_TIERS], `bad tiers ${JSON.stringify(bad)} → default`);
   }
+  // write-guard default derives from the effective tiers: start of the tier
+  // before compact (tiers[1]); an explicit positive contextWarnAt overrides
+  assert.equal(parseContextSettings("{}").warnAt, 90_000, "default guard = default tiers[1]");
+  assert.equal(
+    parseContextSettings(JSON.stringify({ contextTiers: [10_000, 20_000, 30_000] })).warnAt,
+    20_000,
+    "guard derives from the effective contextTiers",
+  );
+  for (const bad of [[1, 2], [30, 20, 10], ["a", "b", "c"], [1, 1, 2], 50000, null]) {
+    assert.equal(
+      parseContextSettings(JSON.stringify({ contextTiers: bad })).warnAt,
+      DEFAULT_CONTEXT_WARN_AT,
+      `bad tiers ${JSON.stringify(bad)} → guard falls back with the default tiers`,
+    );
+  }
+  assert.equal(
+    parseContextSettings(JSON.stringify({ contextTiers: [10_000, 20_000, 30_000], contextWarnAt: 25_000 })).warnAt,
+    25_000,
+    "explicit contextWarnAt overrides the tier-derived guard",
+  );
   assert.equal(parseContextSettings(JSON.stringify({ contextWarnAt: 60_000 })).warnAt, 60_000);
   assert.equal(parseContextSettings(JSON.stringify({ contextWarnAt: 0 })).warnAt, DEFAULT_CONTEXT_WARN_AT, "non-positive → default");
   assert.equal(parseContextSettings("{not json").disabled, false, "bad JSON → defaults");
@@ -197,7 +218,7 @@ test("tierOf: custom contextTiers boundaries are honored", () => {
 
 test("estimateContext: est = input + cacheWrite + cacheRead*factor, absolute-k tier from settings", () => {
   process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
-  const proj = sandboxProject(); // defaults: window 1M, factor 0, tiers 50k/90k/130k, warnAt 100k
+  const proj = sandboxProject(); // defaults: window 1M, factor 0, tiers 50k/90k/130k, warnAt 90k (derived)
   const est = estimateContext("test", proj);
   assert.equal(est.est, 27549 + 500); // cacheWrite counts, cacheRead (0) does not
   assert.equal(est.window, DEFAULT_CONTEXT_WINDOW);
@@ -214,7 +235,9 @@ test("estimateContext: est = input + cacheWrite + cacheRead*factor, absolute-k t
   fs.rmSync(projHalf, { recursive: true, force: true });
 
   const projCustom = sandboxProject(JSON.stringify({ v: 1, contextTiers: [10_000, 20_000, 30_000] }));
-  assert.equal(estimateContext("test", projCustom).tier, "tight", "28k vs custom tiers [10k,20k,30k] → tight");
+  const customEst = estimateContext("test", projCustom);
+  assert.equal(customEst.tier, "tight", "28k vs custom tiers [10k,20k,30k] → tight");
+  assert.equal(customEst.warnAt, 20_000, "estimate carries the tier-derived guard (custom tiers[1])");
   fs.rmSync(projCustom, { recursive: true, force: true });
 
   const projOff = sandboxProject(JSON.stringify({ v: 1, lang: {}, contextEstimate: "off" }));
@@ -240,8 +263,8 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
   assert.match(staticLine, /^\[ROUTE\] token economy \(IRON RULE\):/);
   assert.ok(staticLine.includes("Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META."));
 
-  const mk = (tier, tiers = [...DEFAULT_CONTEXT_TIERS]) =>
-    ({ est: 70_000, window: 1_000_000, pct: 0.07, tier, tiers, warnAt: 100_000 });
+  const mk = (tier, tiers = [...DEFAULT_CONTEXT_TIERS], warnAt = tiers[1]) =>
+    ({ est: 70_000, window: 1_000_000, pct: 0.07, tier, tiers, warnAt }); // warnAt default mirrors estimateContext's derivation
   for (const tier of ["free", "frugal", "tight", "compact"]) {
     const dyn = renderRouteLine(mk(tier));
     assert.equal(dyn.split("\n").length, 3, `${tier}: exactly 3 lines`);
@@ -250,7 +273,7 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
     assert.equal(dyn.split("\n")[1], {
       free: "Context free (<50k): trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on; chunkier work goes to dispatch.",
       frugal: "Frugal (50k–90k): hands-on only for outputs ≤3k tokens (single-file fixes, .switchman bookkeeping, fleet coordination); dispatch everything else.",
-      tight: "Tight (90k–130k): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from 100k refresh the handover doc first; keep main-context output short.",
+      tight: "Tight (90k–130k): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from 90k refresh the handover doc first; keep main-context output short.",
       compact: "Compact recommended (≥130k): write/refresh the handover doc first (the only allowed larger output), then /compact or start a fresh session.",
     }[tier], `${tier}: tier line pinned verbatim`);
   }
@@ -258,6 +281,21 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
     renderRouteLine(mk("frugal", [10_000, 20_000, 30_000])),
     /^Frugal \(10k–20k\):/m,
     "tier text numbers follow custom contextTiers",
+  );
+  assert.match(
+    renderRouteLine(mk("tight", [10_000, 20_000, 30_000])),
+    /from 20k refresh the handover doc first/,
+    "tight handover-refresh threshold follows the tier-derived guard (20k)",
+  );
+  assert.match(
+    renderRouteLine({ est: 70_000, window: 1_000_000, pct: 0.07, tier: "tight", tiers: [10_000, 20_000, 30_000] }),
+    /from 20k refresh the handover doc first/,
+    "estimate without warnAt → tight text falls back to tiers[1]",
+  );
+  assert.match(
+    renderRouteLine({ est: 70_000, window: 1_000_000, pct: 0.07, tier: "tight", tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: 150_000 }),
+    /from 150k refresh the handover doc first/,
+    "explicit estimate.warnAt wins in the tight text",
   );
   assert.equal(
     renderRouteLine({ est: 1, window: 0, pct: Number.NaN, tier: "unknown", tiers: [...DEFAULT_CONTEXT_TIERS] }),
@@ -355,7 +393,7 @@ const editPayload = (sessionId, project, tool = "Edit") => ({
 });
 
 test("hook smoke: write-guard warns once per turn above contextWarnAt, non-blocking schema", () => {
-  const proj = sandboxProject(); // default warnAt 100k; test-tight est = 110k
+  const proj = sandboxProject(); // default derived warnAt 90k; test-tight est = 110k
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
 
   const first = runHook("pre-tool-use.mjs", editPayload("test-tight", proj), env);
@@ -367,9 +405,19 @@ test("hook smoke: write-guard warns once per turn above contextWarnAt, non-block
     "advisory schema: additionalContext only, never a permission decision",
   );
   assert.equal(doc.hookSpecificOutput.hookEventName, "PreToolUse");
-  assert.match(doc.hookSpecificOutput.additionalContext, /^\[Context\] ≈ 110k\/1M \(11%\) — above the 100k write-guard:/);
+  assert.match(doc.hookSpecificOutput.additionalContext, /^\[Context\] ≈ 110k\/1M \(11%\) — above the 90k write-guard:/);
   assert.match(doc.hookSpecificOutput.additionalContext, /substantive work should dispatch/);
   assert.match(doc.hookSpecificOutput.additionalContext, /refresh the handover doc first/);
+
+  // custom tiers → the guard derives from the effective tiers[1] and renders accordingly
+  const projCustom = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, contextTiers: [10_000, 20_000, 30_000] }));
+  const custom = runHook("pre-tool-use.mjs", editPayload("test-tight", projCustom), env);
+  assert.match(
+    JSON.parse(custom.stdout).hookSpecificOutput.additionalContext,
+    /^\[Context\] ≈ 110k\/1M \(11%\) — above the 20k write-guard:/,
+    "custom tiers → derived 20k guard in the advisory",
+  );
+  fs.rmSync(projCustom, { recursive: true, force: true });
 
   const second = runHook("pre-tool-use.mjs", editPayload("test-tight", proj), env);
   assert.equal(second.stdout, "", "same turn, second write → no second warning");
@@ -385,7 +433,7 @@ test("hook smoke: write-guard silent below the guard, without an estimate, or fo
   const proj = sandboxProject();
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
 
-  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-frugal", proj), env).stdout, "", "70k ≤ 100k → silent");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-frugal", proj), env).stdout, "", "70k ≤ 90k → silent");
   assert.equal(runHook("pre-tool-use.mjs", editPayload("no-such-session", proj), env).stdout, "", "no estimate → silent");
 
   // MultiEdit and NotebookEdit are matched too, and share the same per-turn flag
@@ -417,4 +465,34 @@ test("hook smoke: contextWriteWarning unit — null without estimate or under th
   assert.match(warn, /write-guard/);
   assert.equal(contextWriteWarning("test-tight", proj), null, "flag now set");
   fs.rmSync(proj, { recursive: true, force: true });
+});
+
+test("contextWriteWarning: strict boundary — est exactly at the guard stays silent, one above warns; derived guard follows tiers", () => {
+  process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
+
+  // explicit warnAt = 70_000, est = 70_000 → not strictly above → silent
+  const projEq = sandboxProject(JSON.stringify({ v: 1, contextWarnAt: 70_000 }));
+  assert.equal(contextWriteWarning("test-frugal", projEq), null, "est == explicit warnAt → silent");
+  fs.rmSync(projEq, { recursive: true, force: true });
+
+  // explicit warnAt = 69_999, est = 70_000 → warns, and the rendered threshold is the effective one
+  const projAbove = sandboxProject(JSON.stringify({ v: 1, contextWarnAt: 69_999 }));
+  assert.match(
+    contextWriteWarning("test-frugal", projAbove),
+    /above the 70k write-guard:/,
+    "est > explicit warnAt → warns with the effective threshold rendered",
+  );
+  fs.rmSync(projAbove, { recursive: true, force: true });
+
+  // derived guard: tiers [10k,20k,30k] → warnAt 20_000; est = 20_000 exactly → silent
+  const projDerivedEq = sandboxProject(JSON.stringify({ v: 1, contextTiers: [10_000, 20_000, 30_000] }));
+  assert.equal(contextWriteWarning("test-guard-edge", projDerivedEq), null, "est == derived warnAt (20k) → silent");
+
+  // same derived guard, est = 110_000 → warns with "20k" rendered
+  assert.match(
+    contextWriteWarning("test-tight", projDerivedEq),
+    /above the 20k write-guard:/,
+    "est > derived warnAt → warns with the tier-derived threshold rendered",
+  );
+  fs.rmSync(projDerivedEq, { recursive: true, force: true });
 });

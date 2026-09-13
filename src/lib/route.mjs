@@ -55,15 +55,16 @@ export function loadDispatchMode(projectDir) {
 const STATIC_ROUTE_LINE = `[ROUTE] token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean; long context (heavy history, near-compact, post-compact) favors dispatch, trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on. Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.`;
 
 /** Tier instruction for the dynamic [ROUTE] line, keyed by estimateContext().tier;
- *  the absolute-k numbers are rendered from the estimate's own contextTiers so
- *  custom boundaries never drift from the text */
-function tierLine(tier, tiers) {
+ *  the absolute-k numbers are rendered from the estimate's own contextTiers and
+ *  write-guard (warnAt) so custom boundaries never drift from the text */
+function tierLine(tier, tiers, warnAt) {
   const [t0, t1, t2] = Array.isArray(tiers) && tiers.length === 3 ? tiers : DEFAULT_CONTEXT_TIERS;
+  const guard = Number.isFinite(warnAt) && warnAt > 0 ? warnAt : t1; // estimate's guard; tier-derived default otherwise
   switch (tier) {
     case "frugal":
       return `Frugal (${formatK(t0)}–${formatK(t1)}): hands-on only for outputs ≤3k tokens (single-file fixes, .switchman bookkeeping, fleet coordination); dispatch everything else.`;
     case "tight":
-      return `Tight (${formatK(t1)}–${formatK(t2)}): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from 100k refresh the handover doc first; keep main-context output short.`;
+      return `Tight (${formatK(t1)}–${formatK(t2)}): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from ${formatK(guard)} refresh the handover doc first; keep main-context output short.`;
     case "compact":
       return `Compact recommended (≥${formatK(t2)}): write/refresh the handover doc first (the only allowed larger output), then /compact or start a fresh session.`;
     default:
@@ -80,13 +81,13 @@ function tierLine(tier, tiers) {
 export function renderRouteLine(estimate = null) {
   if (!estimate) return STATIC_ROUTE_LINE;
   try {
-    const { est, window, tier, tiers } = estimate;
+    const { est, window, tier, tiers, warnAt } = estimate;
     if (!Number.isFinite(est) || est < 0 || !Number.isFinite(window) || window <= 0) {
       return STATIC_ROUTE_LINE; // garbage estimate → canonical static text
     }
     return [
       `[ROUTE] context ≈ ${formatContext(est, window)} — token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean.`,
-      tierLine(tier, tiers),
+      tierLine(tier, tiers, warnAt),
       "Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.",
     ].join("\n");
   } catch {

@@ -20,8 +20,11 @@
  *                             the free/frugal/tight/compact tiers, default
  *                             [50_000, 90_000, 130_000] (tiers are absolute
  *                             k, not percentages)
- *   contextWarnAt: number   → PreToolUse write-guard threshold, default
- *                             100_000 (one advisory per user turn above it)
+ *   contextWarnAt: number   → PreToolUse write-guard threshold; default
+ *                             derives from the effective tiers as the start of
+ *                             the tier before compact (tiers[1], 90k with the
+ *                             default tiers), an explicit positive value
+ *                             overrides (one advisory per user turn above it)
  * Pure functions + thin sync IO, fail-open everywhere: missing files, partial
  * lines, corrupt JSON or bad fields all return null and callers degrade to
  * the static rule text. Reads only a bounded tail of the rollout file
@@ -39,7 +42,10 @@ export const CONTEXT_ESTIMATE_OFF = "off";
 export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 export const DEFAULT_CACHE_READ_FACTOR = 0;
 export const DEFAULT_CONTEXT_TIERS = Object.freeze([50_000, 90_000, 130_000]);
-export const DEFAULT_CONTEXT_WARN_AT = 100_000;
+// Write-guard default derives from the tier structure — the start of the tier
+// before compact (tiers[1], 90k with the default tiers) — so the guard and the
+// tier texts can never drift apart; an explicit contextWarnAt still overrides.
+export const DEFAULT_CONTEXT_WARN_AT = DEFAULT_CONTEXT_TIERS[1];
 export const CONTEXT_WARN_FILE = "context-warn.json";
 const ROLLOUT_DIRNAME = path.join(".zcode", "cli", "rollout");
 const ROLLOUT_FILE_PREFIX = "model-io-";
@@ -96,7 +102,9 @@ export function parseContextSettings(text) {
       const tiers = parseTiers(v.contextTiers);
       if (tiers) out.tiers = tiers;
       if (typeof v.contextWarnAt === "number" && Number.isFinite(v.contextWarnAt) && v.contextWarnAt > 0) {
-        out.warnAt = v.contextWarnAt;
+        out.warnAt = v.contextWarnAt; // explicit setting wins over the tier-derived default
+      } else {
+        out.warnAt = out.tiers[1]; // derived: start of the tier before compact, follows the effective tiers
       }
     }
   } catch { /* fail-open: defaults */ }
