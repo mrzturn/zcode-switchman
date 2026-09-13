@@ -123,3 +123,21 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
   heals.
 - While a shell is down: pick a different lane or tell the user; never retry
   a breaker-down shell, never silently degrade.
+
+## Handoff relay (shell context guard)
+
+- Shells get tiered context advisories injected on tool calls (default 30k /
+  50k / 70k absolute tokens, one advisory per tier per shell session). At the
+  handover tiers a shell stops opening new phases and hands back: rw shells
+  write a versioned handover doc under
+  `.switchman/<date>/<lane>-shell/handover/`, ro shells embed a compact
+  handover block in their final message — and every handover result ends with
+  `HANDOFF: <path|inline> · progress: n/m · next: <one sentence>`.
+- Result carries a HANDOFF marker → follow it: read the handover doc at the
+  path after `HANDOFF:` (or the inline block when it says `inline`), then
+  dispatch a fresh shell to continue from its Next steps. Include the
+  already-rejected routes, a fresh ROUTE_META line, and alternate lanes
+  freely — a handoff is a new dispatch, not a continuation of a dead one.
+- Fallback: a result with no HANDOFF marker while the task is not finished →
+  the shell hit its limits without a clean handover; slice the remaining work
+  into smaller pieces yourself and re-dispatch.

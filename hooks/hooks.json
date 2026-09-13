@@ -1,5 +1,5 @@
 {
-  "description": "zcode-switchman routing hooks: session banner, language gate, dispatch gate, failure breaker, context write-guard.",
+  "description": "zcode-switchman routing hooks: session banner, language gate, dispatch gate, failure breaker, context write-guard, shell context guard.",
   "hooks": {
     "SessionStart": [
       {
@@ -30,7 +30,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash|Read|Glob|Grep|WebFetch|WebSearch",
         "hooks": [
           {
             "type": "process",

@@ -187,7 +187,7 @@ test("hook smoke: a pinned model line survives the auto-provision sync", () => {
   // stale body (older template without the workspace rule) + a user-pinned model
   const stale = tpl
     .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"')
-    .replace(/\n6\. 中间产物写入项目根[^\n]*\n?$/, "\n");
+    .replace(/\n6\. 中间产物写入项目根[\s\S]*$/, "\n");
   fs.writeFileSync(target, stale, "utf8");
 
   const msg = JSON.parse(runHook("session-start.mjs", {}).stdout)

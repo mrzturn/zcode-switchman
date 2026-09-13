@@ -20,7 +20,9 @@ const {
   parseContextSettings, loadContextSettings, readLastRolloutUsage,
   estimateContext, formatContext, formatK, tierOf,
   claimContextWarn, resetContextWarn, contextWriteWarning,
+  shellTierOf, shellAdvisoryText, claimShellTierWarn, contextShellAdvisory,
   DEFAULT_CONTEXT_WINDOW, DEFAULT_CACHE_READ_FACTOR, DEFAULT_CONTEXT_TIERS, DEFAULT_CONTEXT_WARN_AT,
+  DEFAULT_SHELL_TIERS,
 } = await import("../src/lib/context.mjs");
 const { renderRouteLine } = await import("../src/lib/route.mjs");
 const { LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE } = await import("../src/lib/lang.mjs");
@@ -114,6 +116,31 @@ test("readLastRolloutUsage: auxiliary querySource lines are skipped, missing fie
   assert.equal(readLastRolloutUsage("test-no-qs", fixtureDir).inputTokens, 42, "querySource missing → accepted");
 });
 
+test("readLastRolloutUsage: sess_subagent_* sessions accept querySource=subagent records; main sessions still skip them", () => {
+  // a shell's model requests carry querySource "subagent" — without the
+  // allowance the whole shell rollout estimates as null
+  const sub = JSON.stringify({
+    type: "model_io", querySource: "subagent",
+    response: { usage: { inputTokens: 31_000, outputTokens: 1, totalTokens: 31_001, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  });
+  const title = JSON.stringify({
+    type: "model_io", querySource: "session_title",
+    response: { usage: { inputTokens: 257, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  });
+  writeRollout("sess_subagent_agent_x", [sub, title].join("\n"));
+  assert.equal(readLastRolloutUsage("sess_subagent_agent_x", fixtureDir).inputTokens, 31_000, "shell session: subagent accepted (title still skipped)");
+
+  // identical content under a non-shell session id: subagent lines are
+  // skipped → no usable record → null → static fallback
+  writeRollout("test-shell-qs", [sub, title].join("\n"));
+  assert.equal(readLastRolloutUsage("test-shell-qs", fixtureDir), null, "non-shell session: subagent line skipped → null");
+
+  // last-good-line semantics hold for shells too: a subagent tail after a
+  // title line wins in a shell file
+  writeRollout("sess_subagent_agent_y", [title, sub].join("\n"));
+  assert.equal(readLastRolloutUsage("sess_subagent_agent_y", fixtureDir).inputTokens, 31_000);
+});
+
 test("readLastRolloutUsage: a last record larger than the 64KB window is still found (window doubles, bounded)", () => {
   // real rollouts embed the whole request: one record can exceed 64KB
   const big = JSON.stringify({
@@ -137,10 +164,11 @@ test("readLastRolloutUsage: missing file, empty file and unsafe session ids → 
 
 // ── settings ──
 
-test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, warnAt, fail-open", () => {
+test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, shellTiers, warnAt, fail-open", () => {
   assert.deepEqual(parseContextSettings("{}"), {
     disabled: false, window: DEFAULT_CONTEXT_WINDOW, cacheReadFactor: DEFAULT_CACHE_READ_FACTOR,
     tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: DEFAULT_CONTEXT_WARN_AT,
+    shellTiers: [...DEFAULT_SHELL_TIERS],
   });
   assert.equal(parseContextSettings(JSON.stringify({ contextEstimate: "off" })).disabled, true);
   assert.equal(parseContextSettings(JSON.stringify({ contextEstimate: "OFF" })).disabled, false, "exact string only");
@@ -174,9 +202,14 @@ test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, wa
   );
   assert.equal(parseContextSettings(JSON.stringify({ contextWarnAt: 60_000 })).warnAt, 60_000);
   assert.equal(parseContextSettings(JSON.stringify({ contextWarnAt: 0 })).warnAt, DEFAULT_CONTEXT_WARN_AT, "non-positive → default");
+  assert.deepEqual(parseContextSettings(JSON.stringify({ contextShellTiers: [10_000, 20_000, 30_000] })).shellTiers, [10_000, 20_000, 30_000], "contextShellTiers validated like contextTiers");
+  for (const bad of [[1, 2], [30, 20, 10], ["a", "b", "c"], [1, 1, 2], 50000, null]) {
+    assert.deepEqual(parseContextSettings(JSON.stringify({ contextShellTiers: bad })).shellTiers, [...DEFAULT_SHELL_TIERS], `bad shellTiers ${JSON.stringify(bad)} → default`);
+  }
   assert.equal(parseContextSettings("{not json").disabled, false, "bad JSON → defaults");
   assert.equal(parseContextSettings("{not json").window, DEFAULT_CONTEXT_WINDOW);
   assert.deepEqual(parseContextSettings("{not json").tiers, [...DEFAULT_CONTEXT_TIERS]);
+  assert.deepEqual(parseContextSettings("{not json").shellTiers, [...DEFAULT_SHELL_TIERS]);
   assert.equal(parseContextSettings("{not json").warnAt, DEFAULT_CONTEXT_WARN_AT);
 });
 
@@ -184,6 +217,7 @@ test("loadContextSettings: reads the project settings file, missing dir → defa
   assert.deepEqual(loadContextSettings(""), {
     disabled: false, window: DEFAULT_CONTEXT_WINDOW, cacheReadFactor: DEFAULT_CACHE_READ_FACTOR,
     tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: DEFAULT_CONTEXT_WARN_AT,
+    shellTiers: [...DEFAULT_SHELL_TIERS],
   });
   const dir = sandboxProject(JSON.stringify({ v: 1, lang: {}, contextEstimate: "off", contextWindow: 500_000 }));
   const cfg = loadContextSettings(dir);
@@ -214,6 +248,37 @@ test("tierOf: custom contextTiers boundaries are honored", () => {
   assert.equal(tierOf(20_000, tiers), "tight");
   assert.equal(tierOf(30_000, tiers), "compact");
   assert.equal(tierOf(70_000, [1, 2, 3, 4]), "frugal", "malformed tiers → default boundaries (70k is 50k–90k → frugal)");
+});
+
+test("shellTierOf: 0..3 against contextShellTiers (default 30k/50k/70k)", () => {
+  assert.equal(shellTierOf(0), 0);
+  assert.equal(shellTierOf(29_999), 0);
+  assert.equal(shellTierOf(30_000), 1);
+  assert.equal(shellTierOf(49_999), 1);
+  assert.equal(shellTierOf(50_000), 2);
+  assert.equal(shellTierOf(69_999), 2);
+  assert.equal(shellTierOf(70_000), 3);
+  assert.equal(shellTierOf(700_000), 3);
+  assert.equal(shellTierOf(Number.NaN), 0, "NaN → 0 (fail-open, silent)");
+  assert.equal(shellTierOf(15_000, [10_000, 20_000, 30_000]), 1, "custom shell tiers honored");
+  assert.equal(shellTierOf(25_000, [10_000, 20_000, 30_000]), 2);
+  assert.equal(shellTierOf(35_000, [10_000, 20_000, 30_000]), 3);
+  assert.equal(shellTierOf(70_000, "bad"), 3, "malformed tiers → defaults (70k ≥ 70k → 3)");
+});
+
+test("shellAdvisoryText: absolute k marks, no percent sign, tier behaviors pinned", () => {
+  assert.match(shellAdvisoryText(1, 31_000), /^\[Context\] 壳上下文 ≈ 31k \/ 档 30k — 省着用：/);
+  assert.match(shellAdvisoryText(1, 31_000), /精准 grep/);
+  assert.match(shellAdvisoryText(2, 55_000), /^\[Context\] 壳上下文 ≈ 55k \/ 档 50k — 收尾交接：/);
+  assert.match(shellAdvisoryText(2, 55_000), /HANDOFF: <path\|inline> · progress: n\/m · next: <一句话>/);
+  assert.match(shellAdvisoryText(3, 71_000), /^\[Context\] 壳上下文 ≈ 71k \/ 档 70k — 立即交接：/);
+  assert.match(shellAdvisoryText(3, 71_000), /progress: partial/);
+  for (const tier of [1, 2, 3]) {
+    assert.ok(!shellAdvisoryText(tier, 71_000).includes("%"), `tier ${tier}: advisory never carries a percent sign`);
+  }
+  assert.match(shellAdvisoryText(1, 15_000, [10_000, 20_000, 30_000]), /档 10k/, "threshold rendered from the effective shell tiers");
+  assert.equal(shellAdvisoryText(0, 1_000), null, "tier 0 → silent");
+  assert.equal(shellAdvisoryText(4, 999_999), null);
 });
 
 test("estimateContext: est = input + cacheWrite + cacheRead*factor, absolute-k tier from settings", () => {
@@ -386,6 +451,63 @@ test("claimContextWarn: once per session-turn, per-session, corrupt file counts 
   fs.rmSync(proj, { recursive: true, force: true });
 });
 
+// ── shell context guard (unit) ──
+
+test("claimShellTierWarn: once per tier per shell session, upgrades inject, regressions stay silent", () => {
+  const proj = sandboxProject();
+  assert.equal(claimShellTierWarn(proj, "sess_subagent_a", 1), true, "first tier injects");
+  assert.equal(claimShellTierWarn(proj, "sess_subagent_a", 1), false, "same tier again → silent");
+  assert.equal(claimShellTierWarn(proj, "sess_subagent_a", 2), true, "upgrade injects");
+  assert.equal(claimShellTierWarn(proj, "sess_subagent_a", 1), false, "lower tier after a higher one → silent");
+  assert.equal(claimShellTierWarn(proj, "sess_subagent_b", 1), true, "other shell sessions are independent");
+
+  fs.writeFileSync(path.join(proj, LANG_SETTINGS_DIRNAME, "context-warn.json"), "{corrupt");
+  assert.equal(claimShellTierWarn(proj, "sess_subagent_a", 3), true, "corrupt state file → treated as never injected");
+
+  // shell tier markers survive the per-turn main-guard reset
+  const proj2 = sandboxProject();
+  claimShellTierWarn(proj2, "sess_subagent_c", 1);
+  resetContextWarn(proj2, "main-turn-sess");
+  assert.equal(claimShellTierWarn(proj2, "sess_subagent_c", 1), false, "resetContextWarn preserves shell tier markers");
+  fs.rmSync(proj, { recursive: true, force: true });
+  fs.rmSync(proj2, { recursive: true, force: true });
+});
+
+test("contextShellAdvisory: subagent estimate → tiered text once per tier; off / no estimate / below tier 1 → null", () => {
+  process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
+  const proj = sandboxProject();
+  const sid = "sess_subagent_adv";
+
+  writeRollout(sid, rec({ inputTokens: 31_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const t1 = contextShellAdvisory(sid, proj);
+  assert.match(t1, /≈ 31k \/ 档 30k/);
+  assert.match(t1, /省着用/);
+  assert.equal(contextShellAdvisory(sid, proj), null, "same tier → silent (one advisory per tier)");
+
+  writeRollout(sid, rec({ inputTokens: 55_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const t2 = contextShellAdvisory(sid, proj);
+  assert.match(t2, /≈ 55k \/ 档 50k/);
+  assert.match(t2, /收尾交接/);
+  assert.equal(contextShellAdvisory(sid, proj), null);
+
+  assert.equal(contextShellAdvisory("sess_subagent_none", proj), null, "no estimate → silent");
+
+  const projOff = sandboxProject(JSON.stringify({ v: 1, lang: {}, contextEstimate: "off" }));
+  writeRollout("sess_subagent_off", rec({ inputTokens: 71_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  assert.equal(contextShellAdvisory("sess_subagent_off", projOff), null, "contextEstimate off → guard off");
+
+  const projCustom = sandboxProject(JSON.stringify({ v: 1, contextShellTiers: [10_000, 20_000, 30_000] }));
+  writeRollout("sess_subagent_cust", rec({ inputTokens: 31_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const t3 = contextShellAdvisory("sess_subagent_cust", projCustom);
+  assert.match(t3, /档 30k/);
+  assert.match(t3, /progress: partial/, "custom tiers push 31k straight to tier 3");
+  assert.deepEqual(estimateContext("sess_subagent_cust", projCustom).shellTiers, [10_000, 20_000, 30_000], "estimateContext carries the effective shell tiers");
+
+  fs.rmSync(proj, { recursive: true, force: true });
+  fs.rmSync(projOff, { recursive: true, force: true });
+  fs.rmSync(projCustom, { recursive: true, force: true });
+});
+
 // ── hook smoke: PreToolUse context write-guard advisory ──
 
 const editPayload = (sessionId, project, tool = "Edit") => ({
@@ -495,4 +617,51 @@ test("contextWriteWarning: strict boundary — est exactly at the guard stays si
     "est > derived warnAt → warns with the tier-derived threshold rendered",
   );
   fs.rmSync(projDerivedEq, { recursive: true, force: true });
+});
+
+// ── hook smoke: PreToolUse shell context guard (read-class matcher) ──
+
+test("hook smoke: shell guard — T1 injects once, same tier silent, 55k escalates to T2, 71k is a partial handover, main-session Read fast-passes", () => {
+  const proj = sandboxProject();
+  const sid = "sess_subagent_agent_x";
+  const shellRead = (tokens) => {
+    writeRollout(sid, rec({ inputTokens: tokens, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+    return runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: sid, cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir });
+  };
+  const ctxOfResult = (r) => JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+
+  // 1+2. T1 (est ≈ 31k): injected exactly once; the same tier never repeats
+  const t1 = shellRead(31_000);
+  assert.equal(t1.status, 0, "exit 0 — nothing blocked");
+  const t1Doc = JSON.parse(t1.stdout).hookSpecificOutput;
+  assert.deepEqual(Object.keys(t1Doc).sort(), ["additionalContext", "hookEventName"], "advisory schema: additionalContext only, never a permission decision");
+  assert.match(t1Doc.additionalContext, /≈ 31k \/ 档 30k/);
+  assert.match(t1Doc.additionalContext, /省着用/);
+  assert.ok(!t1Doc.additionalContext.includes("%"), "no percent sign in the advisory");
+  assert.equal(shellRead(31_500).stdout, "", "same tier second Read → silent");
+
+  // 3. escalation: est ≈ 55k → T2 handover advisory, once
+  const t2 = shellRead(55_000);
+  assert.match(ctxOfResult(t2), /≈ 55k \/ 档 50k/);
+  assert.match(ctxOfResult(t2), /收尾交接/);
+  assert.match(ctxOfResult(t2), /HANDOFF: <path\|inline> · progress: n\/m · next: <一句话>/);
+  assert.equal(shellRead(56_000).stdout, "", "T2 second Read → silent");
+
+  // 5. est ≈ 71k → T3 immediate handover, progress: partial
+  const t3 = shellRead(71_000);
+  assert.match(ctxOfResult(t3), /≈ 71k \/ 档 70k/);
+  assert.match(ctxOfResult(t3), /立即交接/);
+  assert.match(ctxOfResult(t3), /progress: partial/);
+
+  // 4. non-shell session: Read stays silent at any usage — fast-pass, no estimate
+  writeRollout("main-sess-read", rec({ inputTokens: 200_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const mainRead = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir });
+  assert.equal(mainRead.status, 0);
+  assert.equal(mainRead.stdout, "", "non-shell Read → silent fast-pass");
+
+  // the main-session write-guard is untouched: Edit above warnAt still advises
+  const mainEdit = runHook("pre-tool-use.mjs", editPayload("main-sess-read", proj), { ZCODE_ROLLOUT_DIR: fixtureDir });
+  assert.match(JSON.parse(mainEdit.stdout).hookSpecificOutput.additionalContext, /write-guard/, "main-session write-guard unchanged");
+
+  fs.rmSync(proj, { recursive: true, force: true });
 });

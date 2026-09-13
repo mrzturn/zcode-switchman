@@ -25,6 +25,10 @@
  *                             the tier before compact (tiers[1], 90k with the
  *                             default tiers), an explicit positive value
  *                             overrides (one advisory per user turn above it)
+ *   contextShellTiers: [a,b,c] → three ascending absolute-token boundaries
+ *                             for the sub-agent context guard (shell sessions,
+ *                             sess_subagent_* ids), default [30_000, 50_000,
+ *                             70_000]; one advisory per tier per shell session
  * Pure functions + thin sync IO, fail-open everywhere: missing files, partial
  * lines, corrupt JSON or bad fields all return null and callers degrade to
  * the static rule text. Reads only a bounded tail of the rollout file
@@ -35,13 +39,19 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeJsonAtomic, nowIso } from "./state.mjs";
+import { writeJsonAtomic, readJson, nowIso } from "./state.mjs";
 import { LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE } from "./lang.mjs";
 
 export const CONTEXT_ESTIMATE_OFF = "off";
 export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 export const DEFAULT_CACHE_READ_FACTOR = 0;
 export const DEFAULT_CONTEXT_TIERS = Object.freeze([50_000, 90_000, 130_000]);
+// Shell (subagent) context-guard boundaries — lower than the main-session
+// tiers: a shell must hand back while the main session still has room.
+export const DEFAULT_SHELL_TIERS = Object.freeze([30_000, 50_000, 70_000]);
+// Shell session ids share this prefix in PreToolUse payloads and in rollout
+// file names; one string compare is the whole "is this a shell" test.
+export const SHELL_SESSION_PREFIX = "sess_subagent_";
 // Write-guard default derives from the tier structure — the start of the tier
 // before compact (tiers[1], 90k with the default tiers) — so the guard and the
 // tier texts can never drift apart; an explicit contextWarnAt still overrides.
@@ -61,6 +71,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   cacheReadFactor: DEFAULT_CACHE_READ_FACTOR,
   tiers: DEFAULT_CONTEXT_TIERS,
   warnAt: DEFAULT_CONTEXT_WARN_AT,
+  shellTiers: DEFAULT_SHELL_TIERS,
 });
 
 /** Validate a contextTiers value: exactly three finite ascending positives, else null */
@@ -81,13 +92,23 @@ export function tierOf(est, tiers = DEFAULT_CONTEXT_TIERS) {
   return "compact";
 }
 
+/** Shell-guard tier index: 0 below the first boundary, then 1..3 as est
+ *  reaches shellTiers[0..2]. Malformed tiers → defaults (fail-open). */
+export function shellTierOf(est, shellTiers = DEFAULT_SHELL_TIERS) {
+  const [s0, s1, s2] = parseTiers(shellTiers) || DEFAULT_SHELL_TIERS;
+  if (!Number.isFinite(est) || est < s0) return 0;
+  if (est < s1) return 1;
+  if (est < s2) return 2;
+  return 3;
+}
+
 /**
  * Parse settings.json text for the top-level context-estimate fields.
  * Unknown / invalid fields fall back to the defaults (fail-open); only the
  * exact string "off" disables, mirroring parseDispatchMode.
  */
 export function parseContextSettings(text) {
-  const out = { ...DEFAULT_SETTINGS, tiers: [...DEFAULT_CONTEXT_TIERS] };
+  const out = { ...DEFAULT_SETTINGS, tiers: [...DEFAULT_CONTEXT_TIERS], shellTiers: [...DEFAULT_SHELL_TIERS] };
   try {
     const v = JSON.parse(text);
     if (v && typeof v === "object") {
@@ -101,6 +122,8 @@ export function parseContextSettings(text) {
       }
       const tiers = parseTiers(v.contextTiers);
       if (tiers) out.tiers = tiers;
+      const shellTiers = parseTiers(v.contextShellTiers);
+      if (shellTiers) out.shellTiers = shellTiers;
       if (typeof v.contextWarnAt === "number" && Number.isFinite(v.contextWarnAt) && v.contextWarnAt > 0) {
         out.warnAt = v.contextWarnAt; // explicit setting wins over the tier-derived default
       } else {
@@ -125,12 +148,17 @@ export function loadContextSettings(projectDir) {
  * Auxiliary requests are rejected here (querySource present and not
  * "main_turn", e.g. session_title), so the caller's backward scan falls
  * through to the preceding main_turn record; a missing querySource field
- * stays accepted (tolerant to future field changes).
+ * stays accepted (tolerant to future field changes). Shell sessions
+ * (acceptSubagent) additionally accept querySource "subagent" — the source
+ * every shell model request carries — so a shell rollout does not estimate
+ * as null; other auxiliary sources stay skipped for them too.
  */
-function usageFromLine(line) {
+function usageFromLine(line, acceptSubagent = false) {
   try {
     const rec = JSON.parse(line);
-    if (rec?.querySource != null && rec.querySource !== "main_turn") return null;
+    if (rec?.querySource != null && rec.querySource !== "main_turn") {
+      if (!(acceptSubagent && rec.querySource === "subagent")) return null;
+    }
     const u = rec?.response?.usage;
     if (!u || typeof u !== "object") return null;
     if (typeof u.inputTokens !== "number" || !Number.isFinite(u.inputTokens) || u.inputTokens < 0) {
@@ -160,6 +188,7 @@ function usageFromLine(line) {
 export function readLastRolloutUsage(sessionId, rolloutDir) {
   try {
     if (typeof sessionId !== "string" || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+    const acceptSubagent = sessionId.startsWith(SHELL_SESSION_PREFIX);
     const dir = rolloutDir ||
       process.env.ZCODE_ROLLOUT_DIR ||
       path.join(os.homedir(), ROLLOUT_DIRNAME);
@@ -176,7 +205,7 @@ export function readLastRolloutUsage(sessionId, rolloutDir) {
         for (let i = lines.length - 1; i >= 0; i -= 1) {
           const line = lines[i].trim();
           if (!line) continue;
-          const usage = usageFromLine(line);
+          const usage = usageFromLine(line, acceptSubagent);
           if (usage) return usage;
         }
         if (window >= size || window >= ROLLOUT_WINDOW_MAX_BYTES) return null;
@@ -208,6 +237,7 @@ export function estimateContext(sessionId, projectDir) {
     const pct = est / cfg.window;
     return {
       est, window: cfg.window, pct, tier: tierOf(est, cfg.tiers), tiers: cfg.tiers, warnAt: cfg.warnAt,
+      shellTiers: cfg.shellTiers,
     };
   } catch {
     return null;
@@ -231,6 +261,15 @@ export function formatContext(est, window) {
   return `${fmtK(est)}/${fmtM(window)} (${fmtPct(est / window)})`;
 }
 
+/** Shell tier markers stored alongside the main write-guard flag in the same
+ *  context-warn.json: per shell session, the highest injected tier so far. */
+function readShellTiers(file) {
+  const v = readJson(file);
+  return v && typeof v === "object" && v.shellTiers && typeof v.shellTiers === "object"
+    ? { ...v.shellTiers }
+    : {};
+}
+
 /**
  * Per-turn write-guard flag: true when the caller may emit the advisory now
  * (no valid same-session "warned" flag) and marks it; a missing or corrupt
@@ -248,7 +287,10 @@ export function claimContextWarn(projectDir, sessionId) {
         return false; // already warned this session-turn
       }
     } catch { /* missing or corrupt → not warned yet */ }
-    writeJsonAtomic(p, { v: 1, sessionId: sessionId || null, warned: true, claimedAt: nowIso() });
+    writeJsonAtomic(p, {
+      v: 1, sessionId: sessionId || null, warned: true, claimedAt: nowIso(),
+      shellTiers: readShellTiers(p), // shell tier markers outlive main-turn resets
+    });
     return true;
   } catch {
     return false;
@@ -259,8 +301,10 @@ export function claimContextWarn(projectDir, sessionId) {
 export function resetContextWarn(projectDir, sessionId) {
   try {
     if (!projectDir) return;
-    writeJsonAtomic(path.join(projectDir, LANG_SETTINGS_DIRNAME, CONTEXT_WARN_FILE), {
+    const p = path.join(projectDir, LANG_SETTINGS_DIRNAME, CONTEXT_WARN_FILE);
+    writeJsonAtomic(p, {
       v: 1, sessionId: sessionId || null, warned: false, resetAt: nowIso(),
+      shellTiers: readShellTiers(p), // per shell session, not per turn — survives resets
     });
   } catch { /* fail-open */ }
 }
@@ -277,6 +321,72 @@ export function contextWriteWarning(sessionId, projectDir) {
     if (!est || !(est.est > est.warnAt)) return null;
     if (!claimContextWarn(projectDir, sessionId)) return null;
     return `[Context] ≈ ${formatContext(est.est, est.window)} — above the ${formatK(est.warnAt)} write-guard: substantive work should dispatch to [Shells] shells (DELEGATION_V1 + ROUTE_META); refresh the handover doc first.`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Advisory text for one shell-guard tier (1..3): Chinese, absolute k only —
+ * never a percentage — mirroring the main write-guard's one-line [Context]
+ * style. tier 1 = tighten reading, 2 = wrap up and hand over, 3 = hand over
+ * now (progress: partial). Anything outside 1..3 → null.
+ */
+export function shellAdvisoryText(tier, est, shellTiers = DEFAULT_SHELL_TIERS) {
+  if (tier !== 1 && tier !== 2 && tier !== 3) return null;
+  const t = parseTiers(shellTiers) || DEFAULT_SHELL_TIERS;
+  const mark = `≈ ${formatK(est)} / 档 ${formatK(t[tier - 1])}`;
+  if (tier === 1) {
+    return `[Context] 壳上下文 ${mark} — 省着用：停止批量读文件与整段粘贴，改精准 grep，只引用必要段落。`;
+  }
+  if (tier === 2) {
+    return `[Context] 壳上下文 ${mark} — 收尾交接：不再开启新阶段；完成手头当前单元后交接——rw 壳写版本化 handover（.switchman/<date>/<lane>-shell/handover/handover.NN.md，date 为当天 YYYY-MM-DD，NN 取现有最高+1 补零，Next steps 写剩余工作），ro 壳在最终消息内嵌紧凑交接块；最终消息以 HANDOFF: <path|inline> · progress: n/m · next: <一句话> 结尾。`;
+  }
+  return `[Context] 壳上下文 ${mark} — 立即交接：不再读新文件、不再开新编辑；保存当前状态，handover 标 progress: partial，立即返回。`;
+}
+
+/**
+ * Per-tier claim for the shell context guard: true when this tier is higher
+ * than any tier already injected for this shell session and marks it, so each
+ * tier fires at most once per shell session. Shares context-warn.json with
+ * the main write-guard flag; a missing or corrupt file counts as never
+ * injected. Never throws; persist failure degrades to silence like the main
+ * guard.
+ */
+export function claimShellTierWarn(projectDir, sessionId, tier) {
+  try {
+    const p = path.join(projectDir, LANG_SETTINGS_DIRNAME, CONTEXT_WARN_FILE);
+    const shellTiers = readShellTiers(p);
+    const prev = typeof shellTiers[sessionId] === "number" ? shellTiers[sessionId] : 0;
+    if (!(tier > prev)) return false; // same or lower tier → already delivered
+    shellTiers[sessionId] = tier;
+    const base = readJson(p);
+    writeJsonAtomic(p, {
+      ...(base && typeof base === "object" ? base : { v: 1 }),
+      shellTiers,
+      shellClaimedAt: nowIso(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PreToolUse shell context guard: estimate the shell session's live usage,
+ * tier it against contextShellTiers, and return the advisory text when this
+ * tier is a first for the session (one advisory per tier, ever). Null when
+ * silent: feature off, no estimate, below the first boundary, or the tier was
+ * already delivered. Never throws — callers degrade to no output.
+ */
+export function contextShellAdvisory(sessionId, projectDir) {
+  try {
+    const est = estimateContext(sessionId, projectDir);
+    if (!est) return null;
+    const tier = shellTierOf(est.est, est.shellTiers);
+    if (tier < 1) return null;
+    if (!claimShellTierWarn(projectDir, sessionId, tier)) return null;
+    return shellAdvisoryText(tier, est.est, est.shellTiers);
   } catch {
     return null;
   }
