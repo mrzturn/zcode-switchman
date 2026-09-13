@@ -9,11 +9,18 @@
  * thin sync IO, fail-open everywhere: unreadable or broken settings mean the
  * default "fleet" mode (the rule stays on). Both the [ROUTE] and [Rule]
  * lines are rendered here (renderRouteLine / renderRuleLine) so the two
- * surfaces can never drift.
+ * surfaces can never drift. When the caller passes an estimateContext result
+ * (src/lib/context.mjs), [ROUTE] carries live numbers and a usage-tier
+ * instruction — tiers are absolute est against the contextTiers boundaries
+ * (default 50k/90k/130k): free keeps trivia hands-on, frugal allows ≤3k
+ * outputs only, tight allows <1k and starts handover refresh, compact asks
+ * for handover-then-compact. Without an estimate it degrades to the
+ * canonical static text verbatim.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE } from "./lang.mjs";
+import { formatContext, formatK, DEFAULT_CONTEXT_TIERS } from "./context.mjs";
 
 export const DISPATCH_FLEET = "fleet";
 export const DISPATCH_OFF = "off";
@@ -44,9 +51,47 @@ export function loadDispatchMode(projectDir) {
   return DISPATCH_FLEET;
 }
 
-/** Per-turn token-economy iron-rule line ([ROUTE]); zero params, fixed text */
-export function renderRouteLine() {
-  return `[ROUTE] token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean; long context (heavy history, near-compact, post-compact) favors dispatch, trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on. Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.`;
+/** Canonical static [ROUTE] text (fallback and no-estimate form) */
+const STATIC_ROUTE_LINE = `[ROUTE] token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean; long context (heavy history, near-compact, post-compact) favors dispatch, trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on. Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.`;
+
+/** Tier instruction for the dynamic [ROUTE] line, keyed by estimateContext().tier;
+ *  the absolute-k numbers are rendered from the estimate's own contextTiers so
+ *  custom boundaries never drift from the text */
+function tierLine(tier, tiers) {
+  const [t0, t1, t2] = Array.isArray(tiers) && tiers.length === 3 ? tiers : DEFAULT_CONTEXT_TIERS;
+  switch (tier) {
+    case "frugal":
+      return `Frugal (${formatK(t0)}–${formatK(t1)}): hands-on only for outputs ≤3k tokens (single-file fixes, .switchman bookkeeping, fleet coordination); dispatch everything else.`;
+    case "tight":
+      return `Tight (${formatK(t1)}–${formatK(t2)}): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from 100k refresh the handover doc first; keep main-context output short.`;
+    case "compact":
+      return `Compact recommended (≥${formatK(t2)}): write/refresh the handover doc first (the only allowed larger output), then /compact or start a fresh session.`;
+    default:
+      return `Context free (<${formatK(t0)}): trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on; chunkier work goes to dispatch.`;
+  }
+}
+
+/**
+ * Per-turn token-economy iron-rule line ([ROUTE]). Without an estimate the
+ * canonical static text is returned verbatim; with one (an estimateContext
+ * result) it becomes 3 lines: live numbers + IRON RULE core, the tier
+ * instruction, and the dispatch pointer. Any error falls back to static.
+ */
+export function renderRouteLine(estimate = null) {
+  if (!estimate) return STATIC_ROUTE_LINE;
+  try {
+    const { est, window, tier, tiers } = estimate;
+    if (!Number.isFinite(est) || est < 0 || !Number.isFinite(window) || window <= 0) {
+      return STATIC_ROUTE_LINE; // garbage estimate → canonical static text
+    }
+    return [
+      `[ROUTE] context ≈ ${formatContext(est, window)} — token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean.`,
+      tierLine(tier, tiers),
+      "Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.",
+    ].join("\n");
+  } catch {
+    return STATIC_ROUTE_LINE;
+  }
 }
 
 /** Session-banner token-economy line ([Rule]); zero params, fixed text */

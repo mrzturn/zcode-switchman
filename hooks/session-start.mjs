@@ -13,6 +13,11 @@
  *               session (created/updated shells; user model lines preserved)
  *   [Breaker]   currently down shells, if any
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
+ *   [Context]   live context-usage estimate + tier name, read from the CLI
+ *               rollout log's tail (src/lib/context.mjs) — after a compact
+ *               this is the only window showing current occupancy; omitted
+ *               when no estimate is available (`"contextEstimate": "off"`
+ *               disables)
  *   [Rule]      token-economy iron rule: before each substantive action
  *               state self-vs-dispatch in one sentence and weigh context
  *               length. Opt-out via `"dispatch": "off"` in
@@ -35,6 +40,7 @@ import { readPointer, clearPointer, readDocContent } from "../src/lib/handover.m
 import { provisionShells } from "../src/lib/provision.mjs";
 import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRuleLine } from "../src/lib/route.mjs";
+import { estimateContext, formatContext } from "../src/lib/context.mjs";
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -152,6 +158,18 @@ function ruleLine(projectDir) {
   return null;
 }
 
+/** [Context] live usage estimate line ([Context] ≈ 27.5k/1M (2.8%) — frugal);
+ *  null when no estimate is available (fail-open, never throws) */
+function contextLine(sessionId, projectDir) {
+  try {
+    const est = estimateContext(sessionId, projectDir);
+    if (!est) return null;
+    return `[Context] ≈ ${formatContext(est.est, est.window)} — ${est.tier}`;
+  } catch {
+    return null;
+  }
+}
+
 /** [LANG] iron-rule line when configured; first-run ask directive while not (fail-open, never throws) */
 function langLine(projectDir, sessionId) {
   if (!projectDir) return null;
@@ -189,6 +207,8 @@ try {
   lines.push(shellLine(), bindingLine());
   if (sync) lines.push(sync);
   lines.push(breakerLine(routing), workspaceLine());
+  const ctx = contextLine(sessionId, projectDir);
+  if (ctx) lines.push(ctx);
   const rule = ruleLine(projectDir);
   if (rule) lines.push(rule);
   const lang = langLine(projectDir, sessionId);

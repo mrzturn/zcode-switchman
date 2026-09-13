@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * PreToolUse hook (matcher: Agent|Task|Write|Edit|Bash). Two gate layers:
+ * PreToolUse hook (matcher: Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash).
+ * Two gate layers plus one advisory:
  *
  * 0. lang gate (all matched tools) — while the project language preference is
  *    unconfigured (.switchman/settings.json absent, AGENTS.md marker absent,
@@ -8,6 +9,11 @@
  *    an ask-first error; reads stay allowed. Writes targeting the language
  *    settings file or the waiver file pass (fallback persistence paths).
  *    See src/lib/lang.mjs.
+ * 0.5 context write-guard (Write|Edit|MultiEdit|NotebookEdit) — when the
+ *    live estimate exceeds contextWarnAt, inject a one-shot-per-user-turn
+ *    advisory via hookSpecificOutput.additionalContext. Strictly non-blocking:
+ *    never a permission decision, never deny; silent when no estimate.
+ *    See src/lib/context.mjs (contextWriteWarning).
  * 1. dispatch gates (Agent|Task only) — three gates per shell dispatch:
  *   a. breaker     — windowed failure circuit, auto-heals (~10 min)
  *   b. ROUTE_META  — missing/malformed/illegal/missing-required → deny + sample
@@ -30,6 +36,10 @@ import {
   langWaivedFor,
   isLangWriteAllowed,
 } from "../src/lib/lang.mjs";
+import { contextWriteWarning } from "../src/lib/context.mjs";
+
+/** Tools that carry the context write-guard advisory */
+const CONTEXT_WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit"]);
 
 function deny(reason) {
   process.stdout.write(
@@ -80,6 +90,25 @@ try {
         deny(reason);
         process.exit(0);
       }
+    }
+  }
+
+  // Gate 0.5: context write-guard advisory (write-class tools, non-blocking —
+  // additionalContext only, never a permission decision; silent without an estimate)
+  if (CONTEXT_WRITE_TOOLS.has(toolLc)) {
+    try {
+      const projectDir = payload.cwd ||
+        process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+      const sessionId = payload.session_id ||
+        process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
+      const warn = contextWriteWarning(sessionId, projectDir);
+      if (warn) {
+        process.stdout.write(
+          JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: warn } }) + "\n",
+        );
+      }
+    } catch (err) {
+      process.stderr.write(`[zcode-switchman] context write-guard fail-open: ${err}\n`);
     }
   }
 

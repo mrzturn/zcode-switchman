@@ -74,9 +74,9 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 **辅助**
 
-- **会话横幅**——每次启动注入 `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace] / [Rule]`；装配有变动才出现 `[Sync]`，有待交接时多一行一次性的 `[Handover]`。
+- **会话横幅**——每次启动注入 `[Session] / [Shells] / [Binding] / [Sync] / [Breaker] / [Workspace] / [Context] / [Rule]`；装配有变动才出现 `[Sync]`，有待交接时多一行一次性的 `[Handover]`；`[Context]`（实时用量估算 + 档位名）只在算得出数字时出现。
 - **项目语言偏好**——每个项目记住自己的对话/注释/文档语言。没配置过的项目，在改动任何东西之前模型必须先回答三道 `switchman-lang` 问题，期间改文件和派发都被门禁拦着；答案落盘 `<project>/.switchman/settings.json`，之后 `[LANG]` 铁律每轮重注入。你临时提的语言要求只对当轮生效。
-- **派发优先纪律（token 账）**——每轮注入 `[ROUTE]` 铁律：动手前先用一句话权衡自己做还是派出去（自己做花主上下文且持续膨胀、压缩丢细节；派发花一个全新壳上下文，主上下文只付委派单和结论），并把当前上下文长度纳入考虑——越长越倾向派发；琐事（单行修改、看一两个已知文件、`.switchman/` 记账、协调编队）留给自己。开场横幅同步加 `[Rule]` 行。`.switchman/settings.json` 顶层 `"dispatch": "off"` 可关。
+- **派发优先纪律（token 账）**——每轮注入 `[ROUTE]` 铁律：动手前先用一句话权衡自己做还是派出去（自己做花主上下文且持续膨胀、压缩丢细节；派发花一个全新壳上下文，主上下文只付委派单和结论），并把当前上下文长度纳入考虑——越长越倾向派发；琐事（单行修改、看一两个已知文件、`.switchman/` 记账、协调编队）留给自己。开场横幅同步加 `[Rule]` 行。`.switchman/settings.json` 顶层 `"dispatch": "off"` 可关。0.7.0 起 `[ROUTE]` 行携带实时数字：用量估算自 CLI rollout 日志尾部（`~/.zcode/cli/rollout/model-io-<session>.jsonl`；`inputTokens` 即全量提示口径、已含缓存命中——已用面板数据确认；session_title 之类的辅助请求会被跳过），分档按绝对用量收紧——free（<50k）琐事留给自己 / frugal（50–90k）只许 ≤3k 产物自己做（单文件小修、记账、协调）/ tight（90–130k）只许 <1k 产物、100k 起先刷新交接文档 / compact（≥130k）先写好交接文档，再 `/compact` 或开新会话。开场横幅的 `[Context]` 行显示同一数字与档位；PreToolUse 写护栏对 Write / Edit / MultiEdit / NotebookEdit 在超过 `contextWarnAt`（默认 100k）时注入每轮一次的非阻塞提醒。总开关：`"contextEstimate": "off"` 全部关闭，`"contextWindow"` 设分母（默认 1M），`"contextCacheReadFactor"` 校准缓存读取（默认 0），`"contextTiers"` 覆盖三档边界（默认 `[50000, 90000, 130000]`）。
 - **项目工作区 `.switchman/`**——壳的落盘输出、scratch 分析、交接文档统一放项目根的 `.switchman/`，不散落源码目录。建议加进项目的 `.gitignore`。
 - **四条命令**——`/switchman-setup` 钉模型、`/switchman-doctor` 体检、`/switchman-handover` 交接、`/switchman-lang` 重设语言偏好。
 - **四个技能**——`switchman-routing`（派发协议），以及自源项目原样平移的三个同伴：`git-commit-message`（只产出提交文案，绝不执行 git）、`requirement-docs`（需求/PRD/设计文档规范）、`db-query`（内置脚本只读核验 MySQL/Redis，拒绝一切写操作）。
@@ -94,6 +94,8 @@ templates/agents/   六壳正本，会话启动自动装配到 ~/.zcode/agents
 src/lib/            共享核心：shells / meta / breaker / provision / handover / lang / state /
                     route（dispatch 模式解析，settings.json 顶层开关可关，fail-open；
                     [ROUTE]/[Rule] 两行铁律文案唯一渲染出处：renderRouteLine / renderRuleLine）
+                    context（[ROUTE] 实时数字与 [Context] 横幅行背后的 rollout 尾部用量估算，
+                    fail-open，contextEstimate 开关可关）
 hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse · PostToolUseFailure
 commands/           setup · doctor · handover · lang
 skills/             switchman-routing + git-commit-message / requirement-docs / db-query
