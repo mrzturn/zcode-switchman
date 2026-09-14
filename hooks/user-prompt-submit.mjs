@@ -17,7 +17,9 @@
  * any error prints nothing and the session continues.
  */
 import fs from "node:fs";
-import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
+import {
+  loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor, detectUiLocale, DEFAULT_LANG_CANDIDATES,
+} from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRouteLine } from "../src/lib/route.mjs";
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
 
@@ -46,7 +48,7 @@ try {
     const loaded = loadLangConfig(projectDir);
     if (loaded) lang = renderLangLine(loaded.cfg, loaded.source);
     else if (!langWaivedFor(projectDir, sessionId)) {
-      lang = renderAskDirective();
+      lang = renderAskDirective(DEFAULT_LANG_CANDIDATES, detectUiLocale());
       asking = true;
     }
   }

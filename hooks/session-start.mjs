@@ -39,7 +39,9 @@ import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
 import { SHELLS } from "../src/lib/shells.mjs";
 import { readPointer, clearPointer, readDocContent } from "../src/lib/handover.mjs";
 import { provisionShells } from "../src/lib/provision.mjs";
-import { loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor } from "../src/lib/lang.mjs";
+import {
+  loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor, detectUiLocale, DEFAULT_LANG_CANDIDATES,
+} from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRuleLine } from "../src/lib/route.mjs";
 import { estimateContext, formatContext } from "../src/lib/context.mjs";
 
@@ -177,7 +179,7 @@ function langLine(projectDir, sessionId) {
   try {
     const loaded = loadLangConfig(projectDir);
     if (loaded) return renderLangLine(loaded.cfg, loaded.source);
-    if (!langWaivedFor(projectDir, sessionId)) return renderAskDirective();
+    if (!langWaivedFor(projectDir, sessionId)) return renderAskDirective(DEFAULT_LANG_CANDIDATES, detectUiLocale());
   } catch (err) {
     process.stderr.write(`[zcode-switchman] lang fail-open: ${err}\n`);
   }

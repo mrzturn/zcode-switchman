@@ -8,8 +8,8 @@
 const {
   normalizeLangValue, parseLangSettings, parseAgentsMdLangMarker, loadLangConfig, saveLangConfig,
   renderAskDirective, renderLangLine, parseQuestionAnswers, extractAnswers, saveLangFromQuestion,
-  langGateDecision, hasLangMarkerQuestions, isLangWriteAllowed, langWaivedFor,
-  LANG_SETTINGS_FILE, LANG_WAIVED_FILE, DEFAULT_LANG_CANDIDATES,
+  langGateDecision, hasLangMarkerQuestions, isLangWriteAllowed, langWaivedFor, detectUiLocale,
+  UI_LOCALE_ASK_TEXT, LANG_SETTINGS_FILE, LANG_WAIVED_FILE, DEFAULT_LANG_CANDIDATES,
 } = await import("../src/lib/lang.mjs");
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -61,6 +61,56 @@ test("ask directive carries three marker questions, all candidates and the gate/
   assert.ok(d.includes("HARD GATE"));
   assert.ok(d.includes("settings.json"));
   assert.ok(d.includes("lang-waived.json"));
+});
+
+test("translation table: every tag's three questions keep the verbatim switchman-lang n/3 marker (capture anchor)", () => {
+  assert.equal(Object.keys(UI_LOCALE_ASK_TEXT).length, 11);
+  for (const [tag, asks] of Object.entries(UI_LOCALE_ASK_TEXT)) {
+    assert.equal(asks.length, 3, `${tag}: three questions`);
+    asks.forEach((q, i) => assert.ok(q.includes(`switchman-lang ${i + 1}/3`), `${tag} q${i + 1} marker`));
+  }
+});
+
+test("ask directive: locale picks the question language behind the marker; unknown locale falls back to English", () => {
+  const zh = renderAskDirective(DEFAULT_LANG_CANDIDATES, "zh-CN");
+  assert.ok(zh.includes("switchman-lang 1/3"));
+  assert.ok(zh.includes("本项目的对话语言（我的回复与推理）？"));
+  assert.ok(zh.includes("生成的文档（计划、PRD、设计文档、报告）用什么语言？"));
+  assert.ok(!zh.includes("Conversation language for this project"));
+  const unknown = renderAskDirective(DEFAULT_LANG_CANDIDATES, "xx-XX");
+  assert.ok(unknown.includes("Conversation language for this project (your replies and reasoning)?"));
+  assert.ok(unknown.includes("switchman-lang 2/3"));
+});
+
+test("detectUiLocale: setting.json locale wins (ja verbatim, pt-BR → pt); system / unknown values fall through to env", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-locale-"));
+  const writeLocale = (content) => {
+    const p = path.join(dir, "setting.json");
+    fs.writeFileSync(p, content);
+    return p;
+  };
+  const noEnv = { LC_ALL: "", LANG: "" };
+  assert.equal(detectUiLocale({ settingPath: writeLocale(JSON.stringify({ locale: "ja" })), env: noEnv }), "ja");
+  assert.equal(detectUiLocale({ settingPath: writeLocale(JSON.stringify({ locale: "pt-BR" })), env: noEnv }), "pt");
+  assert.equal(
+    detectUiLocale({ settingPath: writeLocale(JSON.stringify({ locale: "system" })), env: { LC_ALL: "zh_CN.UTF-8", LANG: "" } }),
+    "zh-CN",
+    "locale=system is not a resolved locale → env chain takes over",
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("detectUiLocale: bad JSON fails open to env; env chain honors LC_ALL > LANG with suffixes stripped; all empty → en", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-locale-"));
+  const broken = path.join(dir, "broken.json");
+  fs.writeFileSync(broken, "{not json");
+  const missing = path.join(dir, "missing.json");
+  assert.equal(detectUiLocale({ settingPath: broken, env: { LC_ALL: "", LANG: "de_DE.UTF-8" } }), "de");
+  assert.equal(detectUiLocale({ settingPath: missing, env: { LC_ALL: "zh_CN.UTF-8", LANG: "en_US.UTF-8" } }), "zh-CN");
+  assert.equal(detectUiLocale({ settingPath: missing, env: { LC_ALL: "", LANG: "ko_KR@latin" } }), "ko");
+  assert.equal(detectUiLocale({ settingPath: missing, env: { LC_ALL: "", LANG: "" } }), "en");
+  assert.equal(detectUiLocale({ settingPath: missing, env: {} }), "en");
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("[LANG] line carries three keys, iron rule and single-turn exception semantics", () => {
