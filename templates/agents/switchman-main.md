@@ -3,7 +3,6 @@ name: "switchman-main"
 description: "switchman 编队〔档=main·rw·text〕主力壳：日常实现与验证。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
 color: blue
 model: inherit
-thoughtLevel: medium
 tools:
   - Read
   - Glob

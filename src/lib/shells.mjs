@@ -1,12 +1,15 @@
 /**
  * Static shell fleet — the six fixed-lane shells and their immutable
  * capabilities. Shells bind a *role class* (lane), never a role: the dispatch
- * prompt assigns roles dynamically. Model binding is a per-user frontmatter
- * line in ~/.zcode/agents — templates default to `model: inherit`, pinning
- * any model is a manual edit (by hand or via /switchman-setup) — and is
- * deliberately NOT modeled here: swapping a model never changes a shell name,
+ * prompt assigns roles dynamically. Model and thought level are per-user
+ * frontmatter lines in ~/.zcode/agents — templates ship the neutral defaults
+ * (`model: inherit`, no thought-level pin; both follow the session defaults),
+ * and pinning either is a manual edit (by hand or via /switchman-setup) —
+ * deliberately NOT modeled here: swapping them never changes a shell name,
  * and the SessionStart hook (src/lib/provision.mjs) keeps shell bodies synced
- * to templates while preserving that one user-owned line.
+ * to templates while preserving those user-owned lines. The `thoughtLevel`
+ * field below is the lane's *suggested* effort for the routing docs — it is
+ * never written into shell files.
  */
 
 export const LANES = ["economy", "mechanical", "main", "hard", "vision", "review"];

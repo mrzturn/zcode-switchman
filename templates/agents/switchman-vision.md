@@ -3,7 +3,6 @@ name: "switchman-vision"
 description: "switchman 编队〔档=vision·ro·image〕视觉壳：看图说话/UI 还原比对，承接 image 模态任务。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
 color: yellow
 model: inherit
-thoughtLevel: medium
 tools:
   - Read
   - Glob

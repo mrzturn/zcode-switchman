@@ -3,7 +3,6 @@ name: "switchman-mechanical"
 description: "switchman 编队〔档=mechanical·rw·text〕机械壳：格式化/清点/搬运/数据整理。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
 color: cyan
 model: inherit
-thoughtLevel: low
 tools:
   - Read
   - Glob

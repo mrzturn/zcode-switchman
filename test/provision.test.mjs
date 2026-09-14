@@ -1,6 +1,6 @@
 /**
- * provision.test.mjs — shell auto-provisioning: template sync, model-line
- * ownership, idempotence, fail-open.
+ * provision.test.mjs — shell auto-provisioning: template sync, user-line
+ * ownership (model + thoughtLevel), idempotence, fail-open.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -8,7 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { provisionShells, mergeModelLine, templatePath } = await import(
+const { provisionShells, mergeUserLines, extractUserLines, templatePath } = await import(
   "../src/lib/provision.mjs"
 );
 const { SHELLS } = await import("../src/lib/shells.mjs");
@@ -30,6 +30,7 @@ test("provision: empty dir → six shells created from templates, default inheri
     const tpl = fs.readFileSync(templatePath(PLUGIN_ROOT, name), "utf8");
     assert.equal(text, tpl, `${name}: created file equals template`);
     assert.match(text, /^model: inherit$/m, `${name}: plugin default is inherit`);
+    assert.doesNotMatch(text, /^thoughtLevel:/m, `${name}: no thought-level pin — platform default`);
   }
 });
 
@@ -42,14 +43,14 @@ test("provision: idempotent — a second run changes nothing", () => {
   assert.deepEqual(report.updated, []);
 });
 
-test("provision: pinned model line is preserved while a stale body is refreshed", () => {
+test("provision: pinned model and thoughtLevel lines are preserved while a stale body is refreshed", () => {
   const dir = freshAgentsDir();
   provisionShells({ pluginRoot: PLUGIN_ROOT, agentsDir: dir });
   const target = path.join(dir, "switchman-main.md");
   const tpl = fs.readFileSync(templatePath(PLUGIN_ROOT, "switchman-main"), "utf8");
-  // simulate an older plugin body + a user-pinned model
+  // simulate an older plugin body + user-pinned model and thought level
   const stale = tpl
-    .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"')
+    .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"\nthoughtLevel: high')
     .replace(/\n6\. 中间产物写入项目根[\s\S]*$/, "\n");
   fs.writeFileSync(target, stale, "utf8");
 
@@ -58,8 +59,22 @@ test("provision: pinned model line is preserved while a stale body is refreshed"
 
   const synced = fs.readFileSync(target, "utf8");
   assert.match(synced, /^model: "custom:provider:model-x"$/m, "model line survives");
+  assert.match(synced, /^thoughtLevel: high$/m, "thoughtLevel line survives");
   assert.match(synced, /^6\. 中间产物写入项目根/m, "body refreshed from current template");
-  assert.equal(synced, tpl.replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"'));
+  assert.equal(
+    synced,
+    tpl.replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"\nthoughtLevel: high'),
+  );
+});
+
+test("provision: a file with no thoughtLevel line stays unpinned (no pin is injected)", () => {
+  const dir = freshAgentsDir();
+  provisionShells({ pluginRoot: PLUGIN_ROOT, agentsDir: dir });
+  const target = path.join(dir, "switchman-review.md");
+  // second run: in sync with the pin-free template — nothing normalized in
+  const report = provisionShells({ pluginRoot: PLUGIN_ROOT, agentsDir: dir });
+  assert.deepEqual(report.unchanged.sort(), Object.keys(SHELLS).sort());
+  assert.doesNotMatch(fs.readFileSync(target, "utf8"), /^thoughtLevel:/m);
 });
 
 test("provision: file without a model line normalizes to inherit", () => {
@@ -82,7 +97,18 @@ test("provision: unreadable template root → per-shell failures, no throw", () 
   assert.deepEqual(report.updated, []);
 });
 
-test("mergeModelLine: template without a model line gets the user line after color:", () => {
-  const out = mergeModelLine('---\nname: x\ncolor: red\n---\nbody\n', 'model: "custom:p:m"');
-  assert.match(out, /^color: red\nmodel: "custom:p:m"$/m);
+test("mergeUserLines: template without the user lines gets them after color:", () => {
+  const out = mergeUserLines('---\nname: x\ncolor: red\n---\nbody\n', {
+    model: 'model: "custom:p:m"',
+    thoughtLevel: "thoughtLevel: high",
+  });
+  assert.match(out, /^color: red$/m);
+  assert.match(out, /^model: "custom:p:m"$/m);
+  assert.match(out, /^thoughtLevel: high$/m);
+});
+
+test("extractUserLines: picks up both user-owned lines, ignores everything else", () => {
+  const lines = extractUserLines('---\nname: x\nmodel: "p:m"\nthoughtLevel: low\ncolor: red\n---\n');
+  assert.deepEqual(lines, { model: 'model: "p:m"', thoughtLevel: "thoughtLevel: low" });
+  assert.deepEqual(extractUserLines("---\nname: x\n---\n"), {});
 });

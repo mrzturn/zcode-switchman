@@ -37,16 +37,17 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 ## Model
 
 - The fleet is **fixed**: six shells, one per lane. Shell names never change —
-  only the model behind each shell does (a `model:` line in
-  `~/.zcode/agents/<shell>.md`). The plugin default is `model: inherit`
-  (follow the session default model); pinning any other model is a manual,
-  per-user edit — by hand or via `/switchman-setup`. Templates never pick
-  models, and the gate never inspects them.
+  only what runs behind each shell does (the user-owned `model:` /
+  `thoughtLevel:` lines in `~/.zcode/agents/<shell>.md`). The plugin defaults
+  are neutral — `model: inherit` and no thought-level pin, both following the
+  session defaults; pinning either is a manual, per-user edit — by hand or via
+  `/switchman-setup`. Templates never pick models, and the gate never inspects
+  them.
 - Shells **self-provision**: the SessionStart hook installs all six into the
   user agents dir at every session start — missing shells are created from
   templates, stale bodies are synced to the current templates (plugin updates
-  propagate with no user action), and each shell's `model:` line is preserved
-  verbatim.
+  propagate with no user action), and each shell's `model:` and
+  `thoughtLevel:` lines are preserved verbatim.
 - A shell binds only *role class × tool whitelist × thought level*; the role
   is assigned dynamically by each dispatch prompt (DELEGATION_V1). The role
   contract and task live in the prompt, never in the shell.
@@ -66,6 +67,10 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 | hard | `switchman-hard` | rw | high | deep design / hard problems |
 | vision | `switchman-vision` | ro (image) | medium | image understanding / screenshot work |
 | review | `switchman-review` | ro | high | review-only second pair of eyes |
+
+The effort column is each lane's *suggested* thought level — shells ship
+unpinned (platform default); a level you pin in a shell's frontmatter is
+user-owned and survives plugin updates.
 
 - Reviews are plain second-opinion dispatches: the review shell runs whatever
   model the user configured in its frontmatter; the gate never inspects models.

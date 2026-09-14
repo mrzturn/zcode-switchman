@@ -10,7 +10,8 @@
  *   [Binding]   how many shells carry a model line; shells without one
  *               (and `model: inherit`) follow the session default model
  *   [Sync]      auto-provision report, only when something changed this
- *               session (created/updated shells; user model lines preserved)
+ *               session (created/updated shells; user model and
+ *               thought-level lines preserved)
  *   [Breaker]   currently down shells, if any
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
  *   [Context]   live context-usage estimate + tier name, read from the CLI
@@ -112,7 +113,7 @@ function syncLine() {
       process.stderr.write(`[zcode-switchman] provision ${f.name}: ${f.error}\n`);
     }
   }
-  return `[Sync] shells auto-provisioned (${parts.join("; ")}); user model lines preserved`;
+  return `[Sync] shells auto-provisioned (${parts.join("; ")}); user model/thought-level lines preserved`;
 }
 
 function breakerLine(routing) {

@@ -3,7 +3,6 @@ name: "switchman-economy"
 description: "switchman 编队〔档=economy·ro·text〕轻量壳：海量轻量检索/摘要/清点。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
 color: green
 model: inherit
-thoughtLevel: low
 tools:
   - Read
   - Glob

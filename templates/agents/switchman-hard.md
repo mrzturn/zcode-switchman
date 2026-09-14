@@ -3,7 +3,6 @@ name: "switchman-hard"
 description: "switchman 编队〔档=hard·rw·text〕深潜壳：架构设计/难题攻坚/复杂重构。只绑定职责与工具面，角色由委派 prompt 动态赋予。"
 color: purple
 model: inherit
-thoughtLevel: high
 tools:
   - Read
   - Glob

@@ -8,13 +8,15 @@ Installing and updating the shells is **not** this command's job: the
 SessionStart hook auto-provisions the fleet on every session start — missing
 shells are created from `templates/agents/` with the plugin default
 `model: inherit`, and stale bodies are synced to the current templates while
-each shell's `model:` line is preserved verbatim. That one line is user-owned
-and is the only thing the plugin never overwrites.
+each shell's `model:` and `thoughtLevel:` lines are preserved verbatim. Those
+lines are user-owned — the only things the plugin never overwrites.
 
-This command is the conversational way to edit exactly that line: report the
+This command is the conversational way to edit the `model:` line: report the
 current bindings, optionally discover ZCode's models, and pin or reset lanes
 as asked. Templates never choose models, and the plugin never validates or
-judges them — whatever the user pins is what runs. Ask in the user's
+judges them — whatever the user pins is what runs. (A `thoughtLevel:` pin is
+edited the same hand-edit way; templates ship without one, so unpinned shells
+follow the session default.) Ask in the user's
 language; ask in small batches (1–3 questions per turn), always offering the
 sensible default so the user can just say "默认" (= leave it on `inherit`).
 

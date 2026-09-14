@@ -8,7 +8,7 @@
 
 **1. 固定六档子代理编队。** economy / mechanical / main / hard / vision / review，一档一壳。装完插件开个会话它们就自动就位：缺的创建，过期的同步，出故障的熔断隔离。壳名永不改——换模型不动任何 prompt、文档和肌肉记忆。
 
-**2. 模型是你的一行私产。** ZCode 的子代理注册是静态的，跑起来换不了模型，所以这一版把模型完全交给你：所有壳默认 `model: inherit`，跟着会话默认模型走；想钉死哪档，就在那档的 frontmatter 里改一行 `model:`，或者用 `/switchman-setup` 对话式完成。插件从不检查、也从不评判你绑了什么。
+**2. 模型和思考等级是你的私产。** ZCode 的子代理注册是静态的，跑起来换不了模型，所以这一版把它们完全交给你：所有壳默认 `model: inherit`、不钉思考等级，各自跟着会话默认走；想钉死哪档，就在那档的 frontmatter 里改 `model:` / `thoughtLevel:` 行，模型也可以用 `/switchman-setup` 对话式完成。插件从不检查、也从不评判你绑了什么——插件升级也不会重置：装配同步原样保留这两行。
 
 在此之上：
 
@@ -58,7 +58,7 @@
 ## 快速上手
 
 1. **装插件，重开会话。** 启动横幅的 `[Shells]` 行列出六壳，它们已被装配进 `~/.zcode/agents/`（Settings → Subagents 可见）。若当前会话早于装配，下一个会话就能看到。
-2. **（可选）钉模型。** 默认 `model: inherit` 已经够用；想让某档跑固定模型，跑 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` 行。壳文件在会话启动时快照，改完要重开会话才生效。
+2. **（可选）钉模型/思考等级。** 默认 `model: inherit`、不钉思考等级，已经够用；想让某档跑固定模型或固定思考等级，模型跑 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` / `thoughtLevel:` 行。壳文件在会话启动时快照，改完要重开会话才生效。
 3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发（每轮 `[ROUTE]` token 账铁律兜底），你也可以直接说「这活派给 hard」。每次委派自带 ROUTE_META，门禁自动把关。
 4. **心里没底就体检。** `/switchman-doctor`，七项自检。
 5. **会话跑长了就交接。** `/switchman-handover` 把当前会话总结成 `.switchman/` 下的版本化交接文档（`handover.01.md`、`handover.02.md`…每次执行都生成新版本，从不动旧文件），并把 `handover.json` 指针指向最新版；你按一次 `/compact`，SessionStart hook 把文档全文注入新上下文，从 Next steps 无缝接着干。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
@@ -69,7 +69,7 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 **核心**
 
-- **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进 `~/.zcode/agents/`：缺失的从模板创建，过期的正文同步到当前模板（插件升级零操作生效）。`model:` 行归你，壳正文归模板，同步永不覆盖你的模型行。
+- **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进 `~/.zcode/agents/`：缺失的从模板创建，过期的正文同步到当前模板（插件升级零操作生效）。`model:` / `thoughtLevel:` 行归你，壳正文归模板，同步永不覆盖你钉过的行。
 - **派发门禁与熔断**——PreToolUse hook 给每次壳派发过三闸：失败熔断 → ROUTE_META 校验 → 语义闸（rw 的活不能派给只读壳，看图只能派 vision）。10 分钟内失败 2 次熔断该壳 10 分钟；not-found 类错误只熔断被请求的名字，拼错壳名不牵连健康壳。非 switchman 代理原样放行；门禁自身坏了 fail-open，绝不挡活。
 
 **辅助**
@@ -107,7 +107,7 @@ test/               契约测试（node --test test/*.test.mjs）
 
 1. 壳名 `switchman-<档位>` 是稳定标识，小版本绝不改。
 2. ROUTE_META 行：键白名单、值小写、前 4000 字符内解析；`role` / `capability` / `source` 必填，未知键忽略。
-3. `model:` 行归用户，壳正文归模板，装配同步不碰模型行。
+3. `model:` / `thoughtLevel:` 行归用户，壳正文归模板，装配同步两行都不碰。
 4. deny 必附言：每次拦截都说明该改派哪个档位。
 5. 门禁处处 fail-open：坏了写 stderr、放行，不挡活。
 6. `.switchman/handover.json` 指针由 `/switchman-handover` 写入，SessionStart hook 一次性消费。
