@@ -27,6 +27,8 @@
  *   b. ROUTE_META  — missing/malformed/illegal/missing-required → deny + sample
  *   c. semantics   — ro↔rw / modality
  * Dispatches to non-switchman agents (built-ins etc.) are out of scope: allow.
+ * A project opted out via settings.json `"dispatch": "off"` stands these gates
+ * down entirely (same switch that hides the [Rule]/[ROUTE] prompt lines).
  *
  * Models are the user's own per-shell frontmatter choice; the gate never
  * inspects or judges them.
@@ -44,6 +46,7 @@ import {
   langWaivedFor,
   isLangWriteAllowed,
 } from "../src/lib/lang.mjs";
+import { DISPATCH_OFF, loadDispatchMode } from "../src/lib/route.mjs";
 import { contextWriteWarning, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
 
 /** Tools that carry the context write-guard advisory */
@@ -157,6 +160,14 @@ try {
     // Built-in agents (general-purpose etc.) and foreign fleets are not governed.
     process.exit(0);
   }
+
+  // dispatch opt-out ("dispatch": "off"): the [Rule]/[ROUTE] prompt lines are
+  // off with it, so a shell dispatch may legitimately lack ROUTE_META — the
+  // gates stand down instead of denying what the project opted out of.
+  // (loadDispatchMode is fail-open: unreadable settings mean "fleet".)
+  const projectDir = payload.cwd ||
+    process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  if (loadDispatchMode(projectDir) === DISPATCH_OFF) process.exit(0);
 
   const prompt = payload.tool_input && typeof payload.tool_input === "object"
     ? payload.tool_input.prompt

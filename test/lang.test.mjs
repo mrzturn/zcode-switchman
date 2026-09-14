@@ -192,7 +192,7 @@ test("saveLangFromQuestion: marker args + result → persisted config with norma
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("waiver: session-matching or session-less file waives; other sessions and absence do not", () => {
+test("waiver: exact session match waives; session-less files, other sessions and absence do not", () => {
   const dir = sandboxProject();
   assert.equal(langWaivedFor(dir, "s1"), false);
   fs.mkdirSync(path.join(dir, ".switchman"));
@@ -200,8 +200,25 @@ test("waiver: session-matching or session-less file waives; other sessions and a
   assert.equal(langWaivedFor(dir, "s1"), true);
   assert.equal(langWaivedFor(dir, "s2"), false);
   fs.writeFileSync(path.join(dir, ".switchman", LANG_WAIVED_FILE), JSON.stringify({ v: 1 }));
-  assert.equal(langWaivedFor(dir, "s2"), true);
-  assert.equal(langWaivedFor(dir, ""), true);
+  assert.equal(langWaivedFor(dir, "s2"), false, "session-less waiver file waives nobody");
+  assert.equal(langWaivedFor(dir, ""), false, "an unattributable call cannot claim a named waiver");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("loadLangConfig: broken hand-written settings.json warns on stderr and falls back to the marker", () => {
+  const dir = sandboxProject();
+  fs.mkdirSync(path.join(dir, ".switchman"));
+  fs.writeFileSync(path.join(dir, ".switchman", LANG_SETTINGS_FILE), JSON.stringify({ dispatch: "off" }));
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), "switchman:lang conversation=zh-CN comments=en docs=zh-CN\n");
+  const orig = process.stderr.write;
+  let buf = "";
+  process.stderr.write = (c) => { buf += typeof c === "string" ? c : ""; return true; };
+  try {
+    assert.equal(loadLangConfig(dir).source, "agents-md");
+  } finally {
+    process.stderr.write = orig;
+  }
+  assert.match(buf, /settings\.json exists but carries no valid lang config/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -285,6 +302,25 @@ test("hook smoke: unconfigured project — session waiver file opens the gate fo
   assert.equal(bash.stdout, "", "waived session passes");
   const other = runHook("pre-tool-use.mjs", { tool_name: "Bash", tool_input: { command: "ls" }, cwd: dir, session_id: "sess_other" });
   assert.equal(JSON.parse(other.stdout).hookSpecificOutput.permissionDecision, "deny", "other sessions stay gated");
+  fs.writeFileSync(path.join(dir, ".switchman", LANG_WAIVED_FILE), JSON.stringify({ v: 1 }));
+  const anon = runHook("pre-tool-use.mjs", { tool_name: "Bash", tool_input: { command: "ls" }, cwd: dir, session_id: "sess_any" });
+  assert.equal(JSON.parse(anon.stdout).hookSpecificOutput.permissionDecision, "deny", "session-less waiver file waives nobody");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("hook smoke: dispatch off stands the dispatch gates down (shell dispatch passes without ROUTE_META)", () => {
+  const dir = sandbox(false);
+  fs.mkdirSync(path.join(dir, ".switchman"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, ".switchman", LANG_SETTINGS_FILE),
+    JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "off" }),
+  );
+  const off = runHook("pre-tool-use.mjs", {
+    tool_name: "Agent",
+    tool_input: { subagent_type: "switchman-main", prompt: "no meta here" },
+    cwd: dir,
+  });
+  assert.equal(off.stdout, "", "dispatch:off — no ROUTE_META deny, no gate output");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

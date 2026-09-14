@@ -82,6 +82,12 @@ export function loadLangConfig(projectDir) {
     if (fs.existsSync(settingsPath)) {
       const cfg = parseLangSettings(fs.readFileSync(settingsPath, "utf8"));
       if (cfg) return { cfg, source: "settings", rel: `${LANG_SETTINGS_DIRNAME}/${LANG_SETTINGS_FILE}` };
+      // Hand-edited or half-written file: say why it is being ignored (all
+      // three lang keys are required — extra top-level fields are fine).
+      process.stderr.write(
+        `[zcode-switchman] ${LANG_SETTINGS_DIRNAME}/${LANG_SETTINGS_FILE} exists but carries no valid lang config ` +
+          `(needs {"lang":{"conversation":"..","comments":"..","docs":".."}}); ignoring it for the lang gate\n`,
+      );
     }
   } catch { /* fail-open */ }
   try {
@@ -281,14 +287,14 @@ export function isLangWriteAllowed(toolLc, toolInput, projectDir) {
     settingsOrWaiverPath(projectDir, LANG_WAIVED_FILE, candidate);
 }
 
-/** Session-scoped waiver: true when lang-waived.json exists and names this session (or names none) */
+/** Session-scoped waiver: true only when lang-waived.json names this exact session */
 export function langWaivedFor(projectDir, sessionId) {
-  if (!projectDir) return false;
+  if (!projectDir || !sessionId) return false;
   try {
     const raw = fs.readFileSync(path.join(projectDir, LANG_SETTINGS_DIRNAME, LANG_WAIVED_FILE), "utf8");
     const v = JSON.parse(raw);
     if (typeof v !== "object" || v === null) return false;
-    return !v.sessionId || !sessionId || v.sessionId === sessionId;
+    return v.sessionId === sessionId;
   } catch {
     return false;
   }
