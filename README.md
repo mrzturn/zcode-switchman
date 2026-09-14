@@ -8,7 +8,7 @@ A [ZCode](https://zcode.dev) orchestration plugin, same lineage as [opencode-swi
 
 **1. A fixed six-lane sub-agent fleet.** economy / mechanical / main / hard / vision / review — one shell per lane. Install the plugin, open a session, and they assemble themselves: missing shells are created, stale bodies are synced, broken ones are breaker-isolated. Shell names never change, so swapping a model never touches your prompts, docs, or habits.
 
-**2. Model and thought level are lines you own.** ZCode registers sub-agents statically — no runtime model switching — so this port hands both entirely to you: every shell ships `model: inherit` and no thought-level pin, each following the session default; to pin a lane, edit the `model:` / `thoughtLevel:` lines in its frontmatter (models can also be done conversationally with `/switchman-setup`). The plugin never inspects or judges what you pin — and a plugin update never resets it: provisioning preserves both lines verbatim.
+**2. The model line is yours.** ZCode registers sub-agents statically — no runtime model switching — so this port hands it entirely to you: every shell ships `model: inherit`, following the session default; to pin a lane, edit the `model:` line in its frontmatter (or do it conversationally with `/switchman-setup`). The plugin never inspects or judges what you pin — and a plugin update never resets it: provisioning preserves the line verbatim.
 
 On top of that:
 
@@ -69,7 +69,7 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 
 **Core**
 
-- **Self-provisioning fleet** — at every session start, the SessionStart hook provisions the six shells into `~/.zcode/agents/`: missing shells are created from templates, stale bodies are synced to the current templates (plugin updates propagate with zero action). The `model:` / `thoughtLevel:` lines are yours, the body is the template's, and sync never touches your pinned lines.
+- **Self-provisioning fleet** — at every session start, the SessionStart hook provisions the six shells into `~/.zcode/agents/`: missing shells are created from templates, stale bodies are synced to the current templates (plugin updates propagate with zero action). The `model:` line is yours, the body is the template's, and sync never touches your pinned line.
 - **Dispatch gate & breaker** — the PreToolUse hook checks every shell dispatch against the failure breaker: two failures within 10 minutes trip a 10-minute breaker on that shell; not-found errors stay scoped to the requested name, so a typo never poisons healthy shells. Wrong-lane dispatches need no gate: the dispatched shell is pinned by name and its ro/image tool whitelist is enforced by the platform. Non-switchman agents pass untouched, and a broken gate fails open — it never blocks work.
 
 **Auxiliary**
@@ -107,7 +107,7 @@ test/               contract tests (node --test test/*.test.mjs)
 Skim these before changing code — all are test-locked:
 
 1. Shell names (`switchman-<lane>`) are stable identifiers; never renamed in a minor release.
-2. The `model:` / `thoughtLevel:` lines belong to the user, the shell body to the template; provisioning never rewrites either pinned line.
+2. The `model:` line belongs to the user, the shell body to the template; provisioning never rewrites the pinned line.
 3. Every denial states the lane/shell to use instead.
 4. Gates fail open everywhere: on error they log to stderr and let the dispatch through.
 5. The `.switchman/handover.json` pointer is written by `/switchman-handover` and consumed once by the SessionStart hook.

@@ -60,7 +60,6 @@ test("fleet table: six shells, one per lane, sane capabilities", () => {
     assert.ok(name.startsWith("switchman-"), name);
     assert.ok(["ro", "rw"].includes(s.capability), name);
     assert.ok(["text", "image"].includes(s.modality), name);
-    assert.ok(["low", "medium", "high"].includes(s.thoughtLevel), name);
     assert.ok(s.blurb.length > 5, name);
   }
   assert.equal(SHELLS["switchman-vision"].modality, "image");
@@ -82,7 +81,6 @@ test("templates ship all six shells: name matches file, defaults are neutral", (
     assert.match(text, new RegExp(`^name: "${name}"$`, "m"), `${name}: name field`);
     assert.match(text, /^model: inherit$/m, `${name}: plugin default is inherit`);
     assert.ok(!/^model:[^\n]*custom:/m.test(text), `${name}: no pinned model in template`);
-    assert.ok(!/^thoughtLevel:/m.test(text), `${name}: no thought-level pin — platform default`);
   }
 });
 
@@ -160,15 +158,14 @@ test("hook smoke: pending handover pointer is injected once and consumed", () =>
   fs.rmSync(project, { recursive: true, force: true });
 });
 
-test("hook smoke: pinned model and thoughtLevel lines survive the auto-provision sync", () => {
+test("hook smoke: pinned model line survives the auto-provision sync", () => {
   const target = path.join(agentsDir, "switchman-main.md");
   const tpl = fs.readFileSync(
     path.join(PLUGIN_ROOT, "templates", "agents", "switchman-main.md"), "utf8",
   );
-  // stale body (older template without the workspace rule) + user-pinned
-  // model and thought level
+  // stale body (older template without the workspace rule) + user-pinned model
   const stale = tpl
-    .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"\nthoughtLevel: high')
+    .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"')
     .replace(/\n6\. 中间产物写入项目根[\s\S]*$/, "\n");
   fs.writeFileSync(target, stale, "utf8");
 
@@ -179,7 +176,6 @@ test("hook smoke: pinned model and thoughtLevel lines survive the auto-provision
 
   const synced = fs.readFileSync(target, "utf8");
   assert.match(synced, /^model: "custom:provider:model-x"$/m, "model line preserved");
-  assert.match(synced, /^thoughtLevel: high$/m, "thoughtLevel line preserved");
   assert.match(synced, /^6\. 中间产物写入项目根/m, "body refreshed to current template");
 });
 
