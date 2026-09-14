@@ -1,6 +1,6 @@
 ---
 name: switchman-routing
-description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchman. MANDATORY BEFORE starting any substantive task — implementation, refactoring, multi-file reading or analysis, code-changing debugging, document writing, review, or image work — to pick a lane and dispatch instead of working on the main thread. Also use when composing a dispatch, when a dispatch was denied by the gate, or when the user asks about routing or ROUTE_META. Hands-on main-thread work is only for trivia: one-line fixes, reading 1-2 files at known paths, .switchman bookkeeping, or when the user explicitly says to do it yourself. Before acting, state in one sentence whether the work is done hands-on or dispatched and why (token economy).
+description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchman. MANDATORY BEFORE starting any substantive task — implementation, refactoring, multi-file reading or analysis, code-changing debugging, document writing, review, or image work — to pick a lane and dispatch instead of working on the main thread. Also use when composing a dispatch, when a dispatch was denied by the gate, or when the user asks about routing. Hands-on main-thread work is only for trivia: one-line fixes, reading 1-2 files at known paths, .switchman bookkeeping, or when the user explicitly says to do it yourself. Before acting, state in one sentence whether the work is done hands-on or dispatched and why (token economy).
 ---
 
 # Fixed-fleet dispatch protocol
@@ -24,7 +24,7 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
     reading their results); the user explicitly says "do it yourself".
   - Substantive work (implementation, refactoring, multi-file reading or
     analysis, code-changing debugging, document writing, review, image work)
-    defaults to dispatch via DELEGATION_V1 + ROUTE_META to a lane from the
+    defaults to dispatch via DELEGATION_V1 to a lane from the
     banner's [Shells] line.
   - Context length tips the scale: the longer and heavier the current
     context (many tool results, near-compact, or just after a compact), the
@@ -96,29 +96,13 @@ user-owned and survives plugin updates.
 1. Pick the lane from the task's cognitive strength (light triage / mechanical
    chore / normal implementation / deep design / vision / review).
 2. Compose the dispatch prompt with the fixed-order DELEGATION_V1 template
-   (see `assets/delegation-template.md` in the plugin root) and always include
-   the ROUTE_META line, e.g.:
-
-   ```text
-   ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}
-   ```
-
-3. If a dispatch is denied, the deny reason states why and which lane to use
-   instead — re-dispatch there directly. Do not retry the denied shell.
-4. `source=user` marks a user-named dispatch (audit trail); `auto` is the
-   default for your own routing decisions.
-
-## ROUTE_META quick reference
-
-- One line, within the first 4000 chars; single-line JSON or `k=v` pairs;
-  values lowercase.
-- Required safety fields: `role`, `capability`, `source`. Missing or illegal
-  values make the whole META bad → deny.
-- `lane` is optional (the shell name already implies it); when present it
-  must be one of the six lanes.
-- Models are the user's own per-shell frontmatter choice (`model: "..."` or
-  `model: inherit`); the gate checks lane capability/modality only, never
-  models.
+   (see `assets/delegation-template.md` in the plugin root); the role
+   contract and task go in the prompt — the shell itself is pinned by its
+   name in `subagent_type`, and its ro/image tool whitelist is enforced by
+   the platform.
+3. If a dispatch is denied (failure breaker or language gate), the deny
+   reason states why and which lane to use instead — re-dispatch there
+   directly. Do not retry the denied shell.
 
 ## Failure handling
 
@@ -141,8 +125,8 @@ user-owned and survives plugin updates.
 - Result carries a HANDOFF marker → follow it: read the handover doc at the
   path after `HANDOFF:` (or the inline block when it says `inline`), then
   dispatch a fresh shell to continue from its Next steps. Include the
-  already-rejected routes, a fresh ROUTE_META line, and alternate lanes
-  freely — a handoff is a new dispatch, not a continuation of a dead one.
+  already-rejected routes and alternate lanes freely — a handoff is a new
+  dispatch, not a continuation of a dead one.
 - Fallback: a result with no HANDOFF marker while the task is not finished →
   the shell hit its limits without a clean handover; slice the remaining work
   into smaller pieces yourself and re-dispatch.

@@ -320,7 +320,7 @@ export function contextWriteWarning(sessionId, projectDir) {
     const est = estimateContext(sessionId, projectDir);
     if (!est || !(est.est > est.warnAt)) return null;
     if (!claimContextWarn(projectDir, sessionId)) return null;
-    return `[Context] ≈ ${formatContext(est.est, est.window)} — above the ${formatK(est.warnAt)} write-guard: substantive work should dispatch to [Shells] shells (DELEGATION_V1 + ROUTE_META); refresh the handover doc first.`;
+    return `[Context] ≈ ${formatContext(est.est, est.window)} — above the ${formatK(est.warnAt)} write-guard: substantive work should dispatch to [Shells] shells (DELEGATION_V1); refresh the handover doc first.`;
   } catch {
     return null;
   }

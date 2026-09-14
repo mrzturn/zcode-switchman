@@ -52,7 +52,7 @@ export function loadDispatchMode(projectDir) {
 }
 
 /** Canonical static [ROUTE] text (fallback and no-estimate form) */
-const STATIC_ROUTE_LINE = `[ROUTE] token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean; long context (heavy history, near-compact, post-compact) favors dispatch, trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on. Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.`;
+const STATIC_ROUTE_LINE = `[ROUTE] token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean; long context (heavy history, near-compact, post-compact) favors dispatch, trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on. Dispatches go to [Shells] lanes via DELEGATION_V1.`;
 
 /** Tier instruction for the dynamic [ROUTE] line, keyed by estimateContext().tier;
  *  the absolute-k numbers are rendered from the estimate's own contextTiers and
@@ -88,7 +88,7 @@ export function renderRouteLine(estimate = null) {
     return [
       `[ROUTE] context ≈ ${formatContext(est, window)} — token economy (IRON RULE): before each substantive action, state in one sentence whether you do it yourself or dispatch — hands-on spends and grows this context, a dispatch spends a fresh shell context but keeps this one clean.`,
       tierLine(tier, tiers, warnAt),
-      "Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META.",
+      "Dispatches go to [Shells] lanes via DELEGATION_V1.",
     ].join("\n");
   } catch {
     return STATIC_ROUTE_LINE;

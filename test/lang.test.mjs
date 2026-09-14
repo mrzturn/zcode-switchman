@@ -276,7 +276,8 @@ test("hook smoke: unconfigured project — Bash and Agent dispatch denied, setti
   });
   assert.equal(write.stdout, "", "settings-file write is the carve-out that unblocks the gate");
 
-  // once configured, the same dispatch reaches the dispatch gates (ROUTE_META hard gate)
+  // once configured, the same dispatch reaches the dispatch gates — a clean
+  // breaker state lets it through silently
   fs.mkdirSync(path.join(dir, ".switchman"), { recursive: true });
   fs.writeFileSync(
     path.join(dir, ".switchman", LANG_SETTINGS_FILE),
@@ -287,7 +288,7 @@ test("hook smoke: unconfigured project — Bash and Agent dispatch denied, setti
     tool_input: { subagent_type: "switchman-main", prompt: "do things" },
     cwd: dir,
   });
-  assert.match(JSON.parse(after.stdout).hookSpecificOutput.permissionDecisionReason, /ROUTE_META/);
+  assert.equal(after.stdout, "", "configured project: shell dispatch passes the lang gate");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -308,7 +309,7 @@ test("hook smoke: unconfigured project — session waiver file opens the gate fo
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("hook smoke: dispatch off stands the dispatch gates down (shell dispatch passes without ROUTE_META)", () => {
+test("hook smoke: dispatch off stands the breaker gate down (shell dispatch passes)", () => {
   const dir = sandbox(false);
   fs.mkdirSync(path.join(dir, ".switchman"), { recursive: true });
   fs.writeFileSync(
@@ -317,10 +318,10 @@ test("hook smoke: dispatch off stands the dispatch gates down (shell dispatch pa
   );
   const off = runHook("pre-tool-use.mjs", {
     tool_name: "Agent",
-    tool_input: { subagent_type: "switchman-main", prompt: "no meta here" },
+    tool_input: { subagent_type: "switchman-main", prompt: "plain dispatch" },
     cwd: dir,
   });
-  assert.equal(off.stdout, "", "dispatch:off — no ROUTE_META deny, no gate output");
+  assert.equal(off.stdout, "", "dispatch:off — no gate output at all");
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

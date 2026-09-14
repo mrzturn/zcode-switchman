@@ -12,12 +12,12 @@
 
 在此之上：
 
-- **派发有纪律**。每个壳的委派必须带一行 `ROUTE_META` 元数据，门禁做确定性校验：读写错配、看图任务派错壳，一律拦下并告诉你该派给谁；连续失败自动熔断，到点自愈。
+- **派发有纪律**。错档派发在结构上就难成立：派发时壳名已钉死，只读/看图壳的工具白名单由平台强制。hook 补上平台给不了的那层：连续派发失败自动熔断，到点自愈，每次拦截都说明该改派哪档。
 - **发布即脱敏**。仓库里只有通用模板和代码，任何真实的服务商、套餐、模型绑定、配额口径都不入库——你的绑定只存在于你的家目录。
 
 ## 和 opencode-switchman 的差异
 
-同源同作者，六档编队、ROUTE_META 派发协议、同伴技能都是同一套。差异来自宿主：OpenCode 插件跑在宿主进程里，平台给得多；ZCode 插件是声明式组件加独立进程 hook，给不了的就砍掉。
+同源同作者，六档编队、DELEGATION_V1 委派协议、同伴技能都是同一套。差异来自宿主：OpenCode 插件跑在宿主进程里，平台给得多；ZCode 插件是声明式组件加独立进程 hook，给不了的就砍掉——包括 ROUTE_META 校验闸：编队固定、子代理注册静态，平台已经钉死了壳并强制其工具白名单，这道闸没有可守的东西了。
 
 | | [opencode-switchman](https://github.com/mrzturn/opencode-switchman)（OpenCode 版） | 本仓库（ZCode 版） |
 |---|---|---|
@@ -59,7 +59,7 @@
 
 1. **装插件，重开会话。** 启动横幅的 `[Shells]` 行列出六壳，它们已被装配进 `~/.zcode/agents/`（Settings → Subagents 可见）。若当前会话早于装配，下一个会话就能看到。
 2. **（可选）钉模型/思考等级。** 默认 `model: inherit`、不钉思考等级，已经够用；想让某档跑固定模型或固定思考等级，模型跑 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` / `thoughtLevel:` 行。壳文件在会话启动时快照，改完要重开会话才生效。
-3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发（每轮 `[ROUTE]` token 账铁律兜底），你也可以直接说「这活派给 hard」。每次委派自带 ROUTE_META，门禁自动把关。
+3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发（每轮 `[ROUTE]` token 账铁律兜底），你也可以直接说「这活派给 hard」。委派一律走 DELEGATION_V1 模板；连续失败自动熔断。
 4. **心里没底就体检。** `/switchman-doctor`，七项自检。
 5. **会话跑长了就交接。** `/switchman-handover` 把当前会话总结成 `.switchman/` 下的版本化交接文档（`handover.01.md`、`handover.02.md`…每次执行都生成新版本，从不动旧文件），并把 `handover.json` 指针指向最新版；你按一次 `/compact`，SessionStart hook 把文档全文注入新上下文，从 Next steps 无缝接着干。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
 
@@ -70,7 +70,7 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 **核心**
 
 - **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进 `~/.zcode/agents/`：缺失的从模板创建，过期的正文同步到当前模板（插件升级零操作生效）。`model:` / `thoughtLevel:` 行归你，壳正文归模板，同步永不覆盖你钉过的行。
-- **派发门禁与熔断**——PreToolUse hook 给每次壳派发过三闸：失败熔断 → ROUTE_META 校验 → 语义闸（rw 的活不能派给只读壳，看图只能派 vision）。10 分钟内失败 2 次熔断该壳 10 分钟；not-found 类错误只熔断被请求的名字，拼错壳名不牵连健康壳。非 switchman 代理原样放行；门禁自身坏了 fail-open，绝不挡活。
+- **派发门禁与熔断**——PreToolUse hook 给每次壳派发过一道闸：失败熔断。10 分钟内失败 2 次熔断该壳 10 分钟；not-found 类错误只熔断被请求的名字，拼错壳名不牵连健康壳。错档派发不需要闸：派发时壳已钉死，ro/看图的工具白名单由平台强制。非 switchman 代理原样放行；门禁自身坏了 fail-open，绝不挡活。
 
 **辅助**
 
@@ -84,7 +84,7 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 ## 文档
 
-- 派发协议（六档怎么挑、ROUTE_META 怎么写）：[skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
+- 派发协议（六档怎么挑、DELEGATION_V1 怎么写）：[skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
 - 委派 prompt 模板（DELEGATION_V1）：[assets/delegation-template.md](./assets/delegation-template.md)
 - 移植设计文档（平台差异、取舍、目标结构）：[docs/porting-handover.md](./docs/porting-handover.md)
 
@@ -92,7 +92,7 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 ```
 templates/agents/   六壳正本，会话启动自动装配到 ~/.zcode/agents
-src/lib/            共享核心：shells / meta / breaker / provision / handover / lang / state /
+src/lib/            共享核心：shells / breaker / provision / handover / lang / state /
                     route（dispatch 模式解析，settings.json 顶层开关可关，fail-open；
                     [ROUTE]/[Rule] 两行铁律文案唯一渲染出处：renderRouteLine / renderRuleLine）
                     context（[ROUTE] 实时数字与 [Context] 横幅行背后的 rollout 尾部用量估算，
@@ -106,11 +106,10 @@ test/               契约测试（node --test test/*.test.mjs）
 改代码前扫一眼这几条，都有测试锁定：
 
 1. 壳名 `switchman-<档位>` 是稳定标识，小版本绝不改。
-2. ROUTE_META 行：键白名单、值小写、前 4000 字符内解析；`role` / `capability` / `source` 必填，未知键忽略。
-3. `model:` / `thoughtLevel:` 行归用户，壳正文归模板，装配同步两行都不碰。
-4. deny 必附言：每次拦截都说明该改派哪个档位。
-5. 门禁处处 fail-open：坏了写 stderr、放行，不挡活。
-6. `.switchman/handover.json` 指针由 `/switchman-handover` 写入，SessionStart hook 一次性消费。
+2. `model:` / `thoughtLevel:` 行归用户，壳正文归模板，装配同步两行都不碰。
+3. deny 必附言：每次拦截都说明该改派哪个档位。
+4. 门禁处处 fail-open：坏了写 stderr、放行，不挡活。
+5. `.switchman/handover.json` 指针由 `/switchman-handover` 写入，SessionStart hook 一次性消费。
 
 ## 计划与展望
 

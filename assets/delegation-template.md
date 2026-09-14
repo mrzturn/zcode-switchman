@@ -3,8 +3,6 @@
 > Fixed-order template the main model uses when dispatching tasks to a
 > switchman shell. Fixed sections first, variable sections last — a
 > byte-stable prefix keeps the model's prompt cache warm.
-> The PreToolUse hook hard-validates the ROUTE_META line: shell dispatches with
-> a missing/invalid META are denied with this sample attached.
 
 ## Template body (copy and fill)
 
@@ -23,8 +21,6 @@
 【角色 contract】
 {{ROLE_CONTRACT}}
 
-ROUTE_META {{META_JSON}}
-
 【任务】
 目标：{{GOAL}}
 已知事实：{{FACTS}}
@@ -36,32 +32,8 @@ ROUTE_META {{META_JSON}}
 {{OUTPUT_FORMAT}}
 ```
 
-> `{{ROLE_CONTRACT}}` = one-line role contract (table below); `{{META_JSON}}` =
-> single-line JSON (fields and legal values below; line order is fixed).
-
-## ROUTE_META line format
-
-- The first line starting with `ROUTE_META ` in the prompt; a one-line JSON
-  (preferred) or space-separated `k=v` pairs (fallback).
-- The hook parses the first ROUTE_META line within the first 4000 characters;
-  values are lowercased; the three required fields (`role`, `capability`,
-  `source`) are hard-checked for presence.
-- Legal values (the fleet is fixed; models are the user's own per-shell
-  frontmatter choice and are never inspected by the gate):
-
-| Field | Legal values | Meaning / hook behavior |
-|---|---|---|
-| `lane` | economy / mechanical / main / hard / vision / review | Optional (the shell name already implies it); when present it must name the shell's lane. |
-| `role` | planner / reviewer / programmer / tester / uiux / data-analyst / ops / scouter / clerk / observer / expert-alpha / expert-beta / expert-gamma / generic | Dynamic role. **Required.** |
-| `capability` | ro / rw | Write requirement; an `rw` task dispatched to an ro shell is denied. **Required.** |
-| `modality` | text / image | An `image` task dispatched to a non-vision shell is denied. |
-| `source` | auto / user | `auto` = your own routing decision; `user` = the user named this shell explicitly. **Required.** |
-
-Sample line (paste-ready):
-
-```text
-ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}
-```
+> `{{ROLE_CONTRACT}}` = one-line role contract (table below); line order is
+> fixed.
 
 ## Role contract placeholder table
 
@@ -82,8 +54,7 @@ ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text
 
 ## Usage rules (main-model side)
 
-1. Order is fixed: rules → role contract → ROUTE_META → task block → output format; variable content goes last.
+1. Order is fixed: rules → role contract → task block → output format; variable content goes last.
 2. Fill `{{OUTPUT_FORMAT}}` per role (e.g. "conclusion / changed files / verification / open issues").
-3. When the user names a specific shell, set `source` to `user`; your own routing decisions use `auto`.
-4. Pick the shell from the session banner's `[Shells]` line; a deny reply states the lane to use instead — re-dispatch there, do not retry the denied shell.
-5. Fill `{{ARTIFACTS_DIR}}` with a path under the project's `.switchman/` when the task must leave files on disk; write `none` otherwise (ro shells never write anyway).
+3. Pick the shell from the session banner's `[Shells]` line; a deny reply states the lane to use instead — re-dispatch there, do not retry the denied shell.
+4. Fill `{{ARTIFACTS_DIR}}` with a path under the project's `.switchman/` when the task must leave files on disk; write `none` otherwise (ro shells never write anyway).

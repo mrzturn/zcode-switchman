@@ -28,8 +28,9 @@ not fix anything without asking; print a summary table at the end.
    `failures.log` if present (evidence of recent dispatch failures).
 6. **Hooks smoke**: pipe fake payloads into the hooks with
    `ZCODE_PLUGIN_ROOT=${ZCODE_PLUGIN_ROOT}`:
-   - a PreToolUse dispatch of `switchman-main` **without** ROUTE_META must be
-     denied with a sample attached;
    - a PreToolUse dispatch naming a non-shell agent (e.g. `general-purpose`)
-     must pass silently.
+     must pass silently;
+   - a PreToolUse dispatch of a breaker-down shell must be denied with the
+     lane to use instead (trip it by writing a `down_agents` entry into
+     `$ZCODE_SWITCHMAN_STATE/routing.json`, then remove it afterwards).
 7. **Tests**: `node --test test/*.test.mjs` (run in the plugin root) all green?

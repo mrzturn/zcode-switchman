@@ -12,12 +12,12 @@ A [ZCode](https://zcode.dev) orchestration plugin, same lineage as [opencode-swi
 
 On top of that:
 
-- **Discipline at dispatch.** Every shell delegation carries a `ROUTE_META` metadata line, checked by a deterministic gate: read/write mismatches and image work on the wrong shell get denied, with the shell you should have used spelled out. Repeated failures trip a self-healing circuit breaker.
+- **Discipline at dispatch.** Wrong-lane dispatches are structurally hard to get wrong: the dispatched shell is pinned by name and its read-only/image tool whitelists are enforced by the platform. What a hook can still add, it does: repeated dispatch failures trip a self-healing circuit breaker, and every denial spells out the lane to use instead.
 - **Sanitized by design.** The repo ships generic templates and code only. No real provider, plan, model binding, or quota rule is committed — your bindings live in your home directory.
 
 ## How it differs from opencode-switchman
 
-Same author, same lineage: the six-lane fleet, the ROUTE_META dispatch protocol, and the companion skills are one shared set. The differences come from the host — an OpenCode plugin runs inside the host process and gets a lot; a ZCode plugin is declarative components plus out-of-process hooks, and what the platform can't give was cut.
+Same author, same lineage: the six-lane fleet, the DELEGATION_V1 dispatch protocol, and the companion skills are one shared set. The differences come from the host — an OpenCode plugin runs inside the host process and gets a lot; a ZCode plugin is declarative components plus out-of-process hooks, and what the platform can't give was cut (including the ROUTE_META validation gate: with a fixed fleet and static sub-agent registration, the platform already pins the shell and enforces its tool whitelist, so the gate had nothing left to guard).
 
 | | [opencode-switchman](https://github.com/mrzturn/opencode-switchman) (OpenCode) | This repo (ZCode) |
 |---|---|---|
@@ -59,7 +59,7 @@ Only report done when all three steps pass; summarize what you changed and attac
 
 1. **Install, then open a new session.** The banner's `[Shells]` line lists all six shells, provisioned into `~/.zcode/agents/` (visible under Settings → Subagents). If your current session predates provisioning, the next one will show them.
 2. **(Optional) Pin models.** The default `model: inherit` is enough to start; to run a lane on a fixed model, use `/switchman-setup` for a conversational rebind, or edit the `model:` line in `~/.zcode/agents/switchman-<lane>.md` by hand. Shell files are snapshotted at session start, so restart the session for changes to take effect.
-3. **Just work.** No new commands to memorize: the main model picks lanes per the `switchman-routing` skill (a per-turn `[ROUTE]` token-economy iron rule is the backstop), or you can simply say "dispatch this to hard". Every delegation carries its ROUTE_META line; the gate checks it automatically.
+3. **Just work.** No new commands to memorize: the main model picks lanes per the `switchman-routing` skill (a per-turn `[ROUTE]` token-economy iron rule is the backstop), or you can simply say "dispatch this to hard". Dispatches go out under the DELEGATION_V1 template; repeated failures trip the breaker automatically.
 4. **When in doubt, run the doctor.** `/switchman-doctor`, a seven-point self-check.
 5. **When the session runs long, hand over.** `/switchman-handover` summarizes the session into a versioned handover doc under `.switchman/` (`handover.01.md`, `handover.02.md`, … — every run writes a new version, older ones are never edited) and repoints the `.switchman/handover.json` pointer at the latest; press `/compact` once and the SessionStart hook injects the doc's full text into the fresh context — work resumes from the doc's Next steps with no further action. (Docs over 16 KB degrade to a pointer line; session forking for backup stays your call via the client's session menu.)
 
@@ -70,7 +70,7 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 **Core**
 
 - **Self-provisioning fleet** — at every session start, the SessionStart hook provisions the six shells into `~/.zcode/agents/`: missing shells are created from templates, stale bodies are synced to the current templates (plugin updates propagate with zero action). The `model:` / `thoughtLevel:` lines are yours, the body is the template's, and sync never touches your pinned lines.
-- **Dispatch gate & breaker** — the PreToolUse hook runs every shell dispatch through three gates: failure breaker → ROUTE_META validation → semantics (rw work cannot go to read-only shells; image work only to vision). Two failures within 10 minutes trip a 10-minute breaker on that shell; not-found errors stay scoped to the requested name, so a typo never poisons healthy shells. Non-switchman agents pass untouched, and a broken gate fails open — it never blocks work.
+- **Dispatch gate & breaker** — the PreToolUse hook checks every shell dispatch against the failure breaker: two failures within 10 minutes trip a 10-minute breaker on that shell; not-found errors stay scoped to the requested name, so a typo never poisons healthy shells. Wrong-lane dispatches need no gate: the dispatched shell is pinned by name and its ro/image tool whitelist is enforced by the platform. Non-switchman agents pass untouched, and a broken gate fails open — it never blocks work.
 
 **Auxiliary**
 
@@ -84,7 +84,7 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 
 ## Docs
 
-- Dispatch protocol (lane selection and the ROUTE_META line): [skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
+- Dispatch protocol (lane selection and DELEGATION_V1): [skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
 - Delegation prompt template (DELEGATION_V1): [assets/delegation-template.md](./assets/delegation-template.md)
 - Porting design doc (platform gaps, trade-offs, target structure): [docs/porting-handover.md](./docs/porting-handover.md)
 
@@ -92,7 +92,7 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 
 ```
 templates/agents/   the six shells, auto-provisioned to ~/.zcode/agents at session start
-src/lib/            shared core: shells / meta / breaker / provision / handover / lang / state /
+src/lib/            shared core: shells / breaker / provision / handover / lang / state /
                     route (dispatch-mode parsing with a top-level settings.json off-switch,
                     fail-open; sole renderer of the [ROUTE]/[Rule] iron-rule lines:
                     renderRouteLine / renderRuleLine) /
@@ -107,11 +107,10 @@ test/               contract tests (node --test test/*.test.mjs)
 Skim these before changing code — all are test-locked:
 
 1. Shell names (`switchman-<lane>`) are stable identifiers; never renamed in a minor release.
-2. ROUTE_META line: whitelisted keys, lowercased values, parsed within the first 4000 chars; `role` / `capability` / `source` required, unknown keys ignored.
-3. The `model:` / `thoughtLevel:` lines belong to the user, the shell body to the template; provisioning never rewrites either pinned line.
-4. Every denial states the lane/shell to use instead.
-5. Gates fail open everywhere: on error they log to stderr and let the dispatch through.
-6. The `.switchman/handover.json` pointer is written by `/switchman-handover` and consumed once by the SessionStart hook.
+2. The `model:` / `thoughtLevel:` lines belong to the user, the shell body to the template; provisioning never rewrites either pinned line.
+3. Every denial states the lane/shell to use instead.
+4. Gates fail open everywhere: on error they log to stderr and let the dispatch through.
+5. The `.switchman/handover.json` pointer is written by `/switchman-handover` and consumed once by the SessionStart hook.
 
 ## Roadmap
 

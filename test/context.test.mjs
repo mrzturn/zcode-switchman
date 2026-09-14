@@ -326,7 +326,7 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
   const staticLine = renderRouteLine();
   assert.equal(renderRouteLine(null), staticLine);
   assert.match(staticLine, /^\[ROUTE\] token economy \(IRON RULE\):/);
-  assert.ok(staticLine.includes("Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META."));
+  assert.ok(staticLine.includes("Dispatches go to [Shells] lanes via DELEGATION_V1."));
 
   const mk = (tier, tiers = [...DEFAULT_CONTEXT_TIERS], warnAt = tiers[1]) =>
     ({ est: 70_000, window: 1_000_000, pct: 0.07, tier, tiers, warnAt }); // warnAt default mirrors estimateContext's derivation
@@ -334,7 +334,7 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
     const dyn = renderRouteLine(mk(tier));
     assert.equal(dyn.split("\n").length, 3, `${tier}: exactly 3 lines`);
     assert.match(dyn, /^\[ROUTE\] context ≈ 70k\/1M \(7%\) — token economy \(IRON RULE\):/);
-    assert.ok(dyn.includes("Dispatches go to [Shells] lanes via DELEGATION_V1 + ROUTE_META."));
+    assert.ok(dyn.includes("Dispatches go to [Shells] lanes via DELEGATION_V1."));
     assert.equal(dyn.split("\n")[1], {
       free: "Context free (<50k): trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on; chunkier work goes to dispatch.",
       frugal: "Frugal (50k–90k): hands-on only for outputs ≤3k tokens (single-file fixes, .switchman bookkeeping, fleet coordination); dispatch everything else.",
@@ -386,7 +386,7 @@ test("hook smoke: [ROUTE] carries numbers and the tier line for every absolute-k
     assert.match(route, numRe, `${sid}: numbers`);
     const block = ctx.slice(ctx.indexOf(route));
     assert.match(block, tierRe, `${sid}: tier instruction`);
-    assert.match(block, /Dispatches go to \[Shells\] lanes via DELEGATION_V1 \+ ROUTE_META\./, `${sid}: pointer`);
+    assert.match(block, /Dispatches go to \[Shells\] lanes via DELEGATION_V1\./, `${sid}: pointer`);
     assert.ok(ctx.split("\n").length <= 4, `${sid}: [LANG] + ≤3 [ROUTE] lines total`);
   }
   fs.rmSync(proj, { recursive: true, force: true });

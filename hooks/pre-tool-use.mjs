@@ -22,13 +22,16 @@
  *    one-shot-per-user-turn advisory via hookSpecificOutput.additionalContext.
  *    Strictly non-blocking: never a permission decision, never deny; silent
  *    when no estimate. See src/lib/context.mjs (contextWriteWarning).
- * 1. dispatch gates (Agent|Task only) — three gates per shell dispatch:
- *   a. breaker     — windowed failure circuit, auto-heals (~10 min)
- *   b. ROUTE_META  — missing/malformed/illegal/missing-required → deny + sample
- *   c. semantics   — ro↔rw / modality
+ * 1. dispatch gate (Agent|Task only) — one gate per shell dispatch:
+ *   a. breaker — windowed failure circuit, auto-heals (~10 min)
  * Dispatches to non-switchman agents (built-ins etc.) are out of scope: allow.
- * A project opted out via settings.json `"dispatch": "off"` stands these gates
+ * A project opted out via settings.json `"dispatch": "off"` stands the gate
  * down entirely (same switch that hides the [Rule]/[ROUTE] prompt lines).
+ *
+ * The former ROUTE_META hard gate and ro/modality semantics gates are gone:
+ * subagent_type pins the dispatched shell (nothing here can re-route it), and
+ * the shells' fixed tool whitelists already enforce read-only/image at the
+ * platform level — route semantics live in the delegation prompt, not here.
  *
  * Models are the user's own per-shell frontmatter choice; the gate never
  * inspects or judges them.
@@ -36,7 +39,6 @@
  * fail-open: unparseable payload or any unexpected error → allow with a
  * stderr note. Never block work because the gate is broken.
  */
-import { parseRouteMeta, metaErrorHint } from "../src/lib/meta.mjs";
 import { loadRouting, cleanExpired, agentDown, extractSubagent } from "../src/lib/breaker.mjs";
 import { shellInfo } from "../src/lib/shells.mjs";
 import {
@@ -162,42 +164,20 @@ try {
   }
 
   // dispatch opt-out ("dispatch": "off"): the [Rule]/[ROUTE] prompt lines are
-  // off with it, so a shell dispatch may legitimately lack ROUTE_META — the
-  // gates stand down instead of denying what the project opted out of.
+  // off with it — the breaker stands down with them instead of denying what
+  // the project opted out of.
   // (loadDispatchMode is fail-open: unreadable settings mean "fleet".)
   const projectDir = payload.cwd ||
     process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   if (loadDispatchMode(projectDir) === DISPATCH_OFF) process.exit(0);
 
-  const prompt = payload.tool_input && typeof payload.tool_input === "object"
-    ? payload.tool_input.prompt
-    : null;
   const routing = loadRouting();
   try { cleanExpired(routing); } catch { /* fail-open */ }
 
-  // Gate 1: breaker
+  // Breaker gate
   if (agentDown(agent, routing)) {
     deny(`${agent} temporarily unavailable (failure breaker tripped; auto-recovers in ~10 min)` +
       altHint(shell.lane));
-    process.exit(0);
-  }
-
-  // Gate 2: ROUTE_META hard gate
-  const [meta, metaErr] = parseRouteMeta(prompt);
-  if (metaErr !== null) {
-    deny(`${agent} is a shell dispatch; ROUTE_META invalid: ${metaErrorHint(metaErr)}` + altHint(shell.lane));
-    process.exit(0);
-  }
-
-  // Gate 3: semantics
-  if (meta.capability === "rw" && shell.capability === "ro") {
-    deny(`${agent} is a read-only shell (ro); it cannot take rw tasks` +
-      ", dispatch rw tasks to switchman-mechanical / switchman-main / switchman-hard");
-    process.exit(0);
-  }
-  if (meta.modality && meta.modality !== "text" && shell.modality !== "image") {
-    deny(`${agent} is not a vision shell; it cannot take modality=${meta.modality} tasks` +
-      ", dispatch image tasks to switchman-vision");
     process.exit(0);
   }
   process.exit(0);

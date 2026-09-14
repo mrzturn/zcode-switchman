@@ -53,9 +53,6 @@ const dispatch = (agent, prompt) => ({
   tool_input: { subagent_type: agent, prompt },
 });
 
-const META =
-  'ROUTE_META {"lane":"main","role":"programmer","capability":"rw","modality":"text","source":"auto"}';
-
 test("fleet table: six shells, one per lane, sane capabilities", () => {
   assert.deepEqual(Object.keys(SHELLS).length, 6);
   assert.deepEqual(Object.values(SHELLS).map((s) => s.lane).sort(), [...LANES].sort());
@@ -89,34 +86,17 @@ test("templates ship all six shells: name matches file, defaults are neutral", (
   }
 });
 
-test("hook smoke: dispatch without ROUTE_META → deny with sample", () => {
-  const out = runHook("pre-tool-use.mjs", dispatch("switchman-main", "do the thing"));
-  const reason = denyReason(out);
-  assert.match(reason, /ROUTE_META/);
-  assert.match(reason, /"lane":"main"/); // sample embedded
+test("hook smoke: shell dispatches pass with no ROUTE_META line at all", () => {
+  // the hard META gate and the ro/modality semantics gates are gone:
+  // subagent_type pins the shell and the platform's tool whitelists enforce
+  // ro/image — the hook has nothing to re-route
+  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-main", "do the thing")).stdout, "");
+  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-economy", "rewrite files")).stdout, "");
+  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-main", "look at shot.png")).stdout, "");
+  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-review", "review this")).stdout, "");
 });
 
-test("hook smoke: rw task to an ro shell → deny", () => {
-  const out = runHook("pre-tool-use.mjs", dispatch("switchman-economy", META));
-  assert.match(denyReason(out), /read-only/);
-});
-
-test("hook smoke: image task to a text shell → deny", () => {
-  const meta = META.replace('"modality":"text"', '"modality":"image"')
-    .replace('"lane":"main"', '"lane":"vision"');
-  const out = runHook("pre-tool-use.mjs", dispatch("switchman-main", meta));
-  assert.match(denyReason(out), /not a vision shell/);
-});
-
-test("hook smoke: reviewer dispatch passes; retired producer_family key is ignored", () => {
-  // The hetero-family review gate is gone: models are user-bound, never judged.
-  const meta =
-    'ROUTE_META {"lane":"review","role":"reviewer","producer_family":"glm","capability":"ro","modality":"text","source":"auto"}';
-  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-review", meta)).stdout, "");
-});
-
-test("hook smoke: valid dispatch and foreign agents pass silently", () => {
-  assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-main", META)).stdout, "");
+test("hook smoke: foreign agents pass silently", () => {
   assert.equal(
     runHook("pre-tool-use.mjs", dispatch("general-purpose", "anything, no meta")).stdout,
     "",
@@ -128,7 +108,7 @@ test("hook smoke: breaker-down shell is denied", () => {
     down_agents: { "switchman-main": "2+ failures within window: boom" },
     down_expiry: { "switchman-main": Date.now() / 1000 + 600 },
   });
-  const out = runHook("pre-tool-use.mjs", dispatch("switchman-main", META));
+  const out = runHook("pre-tool-use.mjs", dispatch("switchman-main", "do the thing"));
   assert.match(denyReason(out), /breaker/);
   fs.rmSync(statePaths.routing(), { force: true });
 });
@@ -216,5 +196,5 @@ test("hook smoke: two failed dispatches trip the breaker", () => {
   assert.ok("switchman-hard" in routing.down_agents);
   assert.ok(Number.isFinite(routing.down_expiry["switchman-hard"]));
   // the breaker now blocks dispatch to that shell
-  assert.match(denyReason(runHook("pre-tool-use.mjs", dispatch("switchman-hard", META))), /breaker/);
+  assert.match(denyReason(runHook("pre-tool-use.mjs", dispatch("switchman-hard", "keep going"))), /breaker/);
 });
