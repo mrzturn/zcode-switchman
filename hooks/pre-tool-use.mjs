@@ -2,7 +2,7 @@
 /**
  * PreToolUse hook (matcher: Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash|
  * Read|Glob|Grep|WebFetch|WebSearch).
- * Two gate layers plus two advisories:
+ * Two gate layers plus two advisories plus the shell-session ro-bash gate:
  *
  * 0. lang gate (all matched tools) — while the project language preference is
  *    unconfigured (.switchman/settings.json absent, AGENTS.md marker absent,
@@ -17,6 +17,14 @@
  *    Read-class calls from non-shell sessions fast-pass here too, before any
  *    estimation (string compare only). See src/lib/context.mjs
  *    (contextShellAdvisory).
+ * 0.45 ro-bash gate (Bash, sess_subagent_* sessions only) — read-only shells
+ *    carry Bash with a view/search-only allowlist: the session's capability is
+ *    resolved from its rollout tail (request.toolNames: no Edit/Write-class
+ *    tool → ro), then the command is judged per segment against the
+ *    allowlist; non-matching segments deny with an actionable reason. rw
+ *    shells and unknown capability pass untouched (fail-open). Runs before
+ *    the advisory so a deny outputs the deny alone. See src/lib/robash.mjs
+ *    (judgeRoBashCommand, shellCapabilityFromRollout).
  * 0.5 context write-guard (Write|Edit|MultiEdit|NotebookEdit, non-shell
  *    sessions) — when the live estimate exceeds contextWarnAt, inject a
  *    one-shot-per-user-turn advisory via hookSpecificOutput.additionalContext.
@@ -30,8 +38,10 @@
  *
  * The former ROUTE_META hard gate and ro/modality semantics gates are gone:
  * subagent_type pins the dispatched shell (nothing here can re-route it), and
- * the shells' fixed tool whitelists already enforce read-only/image at the
- * platform level — route semantics live in the delegation prompt, not here.
+ * the shells' fixed tool whitelists enforce read-only/image at the platform
+ * level — route semantics live in the delegation prompt, not here. The one
+ * platform-level exception is ro-shell Bash (a whitelist can only admit the
+ * tool, not per-command), which is exactly what the 0.45 ro-bash gate covers.
  *
  * Models are the user's own per-shell frontmatter choice; the gate never
  * inspects or judges them.
@@ -50,6 +60,7 @@ import {
 } from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode } from "../src/lib/route.mjs";
 import { contextWriteWarning, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
+import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
 
 /** Tools that carry the context write-guard advisory */
 const CONTEXT_WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit"]);
@@ -112,10 +123,26 @@ try {
   const sessionId = payload.session_id ||
     process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
 
-  // Gate 0.4: shell context guard — a subagent session (sess_subagent_* id)
-  // gets its tiered advisory (absolute k, one per tier) and exits: shells are
-  // not subject to the main-session write-guard or the dispatch gates.
+  // Gate 0.4/0.45: shell sessions — ro-bash gate for Bash (deny wins over the
+  // advisory: a deny emits the deny alone), then the shell context guard
+  // advisory; either way the main-session guards and dispatch gates below are
+  // not for shells.
   if (typeof sessionId === "string" && sessionId.startsWith(SHELL_SESSION_PREFIX)) {
+    if (toolLc === "bash") {
+      try {
+        const command = payload.tool_input && payload.tool_input.command;
+        if (typeof command === "string" &&
+            shellCapabilityFromRollout(sessionId) === "ro") {
+          const verdict = judgeRoBashCommand(command);
+          if (!verdict.ok) {
+            deny(roBashDenyText(verdict.reason));
+            process.exit(0);
+          }
+        }
+      } catch (err) {
+        process.stderr.write(`[zcode-switchman] ro-bash gate fail-open: ${err}\n`);
+      }
+    }
     try {
       const projectDir = payload.cwd ||
         process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();

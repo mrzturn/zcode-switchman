@@ -178,6 +178,36 @@ function usageFromLine(line, acceptSubagent = false) {
 }
 
 /**
+ * Tail-read the session's rollout file as raw text through a bounded window
+ * (windowBytes tail, clamped to the 4MB cap; 64KB by default). Consumers that
+ * only need fields serialized near a record's end (e.g. request.toolNames for
+ * the ro-bash gate) get them without paying for a full-file read; a consumer
+ * needing more can call again with a larger window. Never throws; null when
+ * the file is missing or empty.
+ */
+export function readRolloutTailText(sessionId, rolloutDir, windowBytes = ROLLOUT_WINDOW_BYTES) {
+  try {
+    if (typeof sessionId !== "string" || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+    const dir = rolloutDir ||
+      process.env.ZCODE_ROLLOUT_DIR ||
+      path.join(os.homedir(), ROLLOUT_DIRNAME);
+    const fd = fs.openSync(path.join(dir, `${ROLLOUT_FILE_PREFIX}${sessionId}.jsonl`), "r");
+    try {
+      const size = fs.fstatSync(fd).size;
+      if (size <= 0) return null;
+      const window = Math.min(Math.max(windowBytes, 1), ROLLOUT_WINDOW_MAX_BYTES, size);
+      const buf = Buffer.alloc(window);
+      const read = fs.readSync(fd, buf, 0, window, size - window);
+      return buf.toString("utf8", 0, read);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Tail-read the session's rollout file and return the usage of the last
  * complete good main_turn line, skipping partial/corrupt lines (a mid-write
  * tail fails to JSON.parse and falls back to the previous record), auxiliary

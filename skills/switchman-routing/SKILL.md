@@ -97,7 +97,11 @@ deep tasks in that lane go, nothing more.
    (see `assets/delegation-template.md` in the plugin root); the role
    contract and task go in the prompt — the shell itself is pinned by its
    name in `subagent_type`, and its ro/image tool whitelist is enforced by
-   the platform.
+   the platform. ro shells additionally carry Bash behind a read-only
+   allowlist (git view subcommands, rg/grep/cat/ls-style inspection; per
+   command, enforced by the PreToolUse hook): dispatch them git-diff-class
+   work freely — writes and state changes are denied, findings come back as
+   text.
 3. If a dispatch is denied (failure breaker or language gate), the deny
    reason states why and which lane to use instead — re-dispatch there
    directly. Do not retry the denied shell.

@@ -71,6 +71,7 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 - **自装配编队**——SessionStart hook 在每次会话启动时把六壳装配进 `~/.zcode/agents/`：缺失的从模板创建，过期的正文同步到当前模板（插件升级零操作生效）。`model:` 行归你，壳正文归模板，同步永不覆盖你钉过的行。
 - **派发门禁与熔断**——PreToolUse hook 给每次壳派发过一道闸：失败熔断。10 分钟内失败 2 次熔断该壳 10 分钟；not-found 类错误只熔断被请求的名字，拼错壳名不牵连健康壳。错档派发不需要闸：派发时壳已钉死，ro/看图的工具白名单由平台强制。非 switchman 代理原样放行；门禁自身坏了 fail-open，绝不挡活。
+- **ro 壳的只读 Bash**——review / economy / vision 三壳带上 Bash，但只放行查看/搜索类命令（工具白名单只能放行工具名、放不了命令级，所以闸在 PreToolUse hook 里）：`git status/diff/log/show/blame` 一族、`rg/grep/cat/ls/head/tail`、`cd` 前缀与 `git -C` 形式（子代理 Bash 每次调用会重置 cwd）、管道——复合命令逐段判定，每段都得过。写入与改状态（`git commit/push/checkout`、`sed -i`、`find -delete` 等）、重定向到真实文件、命令/进程替换一律拒绝并给出可执行的改法提示；`2>&1` 与 `/dev/null` 目标放行。壳身份从它自己的 rollout 日志尾部解析（`request.toolNames`——平台落定的工具清单，无 Edit/Write 类工具即 ro），rw 壳的 Bash 不受影响，尾部读不出来时 fail-open。0.13.0 起，自 opencode-switchman 的 RO_BASH_PERMISSION 平移。
 
 **辅助**
 
