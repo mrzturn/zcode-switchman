@@ -1,9 +1,14 @@
 #!/usr/bin/env node
+// [2026-09-16]-[inject the code-comment format iron rule on every turn]-[[COMMENT] now rides alongside [LANG]/[ROUTE] with the same always-on semantics]
 /**
  * UserPromptSubmit hook: per-turn context lines. The [LANG] iron-rule line
  * (configured projects) or the first-run ask directive (unconfigured, not
- * waived), plus the [ROUTE] token-economy iron-rule line unless the project
- * opted out via settings.json `"dispatch": "off"` (src/lib/route.mjs).
+ * waived), the [COMMENT] code-comment format iron-rule line (src/lib/
+ * comment-rule.mjs; on by default, `"commentRule": "off"` per project), plus
+ * the [ROUTE] token-economy iron-rule line unless the project opted out via
+ * settings.json `"dispatch": "off"` (src/lib/route.mjs). [COMMENT] is a pure
+ * style rule — unlike [ROUTE] it stays injected while the first-run ask is
+ * active, because it induces no gated action.
  * When a live estimate is available (rollout-log tail, src/lib/context.mjs;
  * whole feature off via `"contextEstimate": "off"`), [ROUTE] carries the
  * numbers and a usage-tier instruction; otherwise it degrades to the static
@@ -21,6 +26,7 @@ import {
   loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor, detectUiLocale, DEFAULT_LANG_CANDIDATES,
 } from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRouteLine } from "../src/lib/route.mjs";
+import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentRuleLine } from "../src/lib/comment-rule.mjs";
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
 
 function readStdinPayload() {
@@ -53,6 +59,7 @@ try {
     }
   }
   if (lang) lines.push(lang);
+  if (loadCommentRuleMode(projectDir) !== COMMENT_RULE_OFF) lines.push(renderCommentRuleLine());
   if (!asking && loadDispatchMode(projectDir) !== DISPATCH_OFF) {
     let est = null;
     try { est = estimateContext(sessionId, projectDir); } catch { est = null; } // fail-open → static text

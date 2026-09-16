@@ -5,6 +5,8 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 
 # Fixed-fleet dispatch protocol
 
+<!-- [2026-09-16]-[document the model/thoughtLevel hands-off ownership contract]-[skill matches provisioning: both pins user-owned, never rewritten or injected] -->
+
 ## Token-economy routing (dispatch-first)
 
 - Before each substantive action, state in ONE sentence whether you do it
@@ -37,16 +39,17 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 ## Model
 
 - The fleet is **fixed**: six shells, one per lane. Shell names never change —
-  only what runs behind each shell does (the user-owned `model:` line in
-  `~/.zcode/agents/<shell>.md`). The plugin default is neutral — `model:
-  inherit`, following the session default — and pinning is a manual, per-user
-  edit, by hand or via `/switchman-setup`. Templates never pick models, and
-  the gate never inspects them.
+  only what runs behind each shell does (the user-owned `model:` and
+  `thoughtLevel:` lines in `~/.zcode/agents/<shell>.md`). The plugin default
+  is neutral — `model: inherit`, following the session default — and pinning
+  is a manual, per-user edit, by hand or via `/switchman-setup` (model only).
+  Templates never pick models, and the gate never inspects them.
 - Shells **self-provision**: the SessionStart hook installs all six into the
   user agents dir at every session start — missing shells are created from
   templates, stale bodies are synced to the current templates (plugin updates
-  propagate with no user action), and each shell's `model:` line is preserved
-  verbatim.
+  propagate with no user action), and each shell's `model:`/`thoughtLevel:`
+  lines are preserved verbatim: never rewritten, never dropped, and never
+  injected when the user hasn't set them.
 - A shell binds only *role class × tool whitelist*; the role
   is assigned dynamically by each dispatch prompt (DELEGATION_V1). The role
   contract and task live in the prompt, never in the shell.

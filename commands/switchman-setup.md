@@ -4,19 +4,24 @@ description: Conversational model rebinding for zcode-switchman — shells self-
 
 # /switchman-setup — zcode-switchman conversational model rebinding
 
+<!-- [2026-09-16]-[align with the model/thoughtLevel hands-off contract]-[setup edits only the model line; thoughtLevel stays a hand-edited user pin] -->
+
 Installing and updating the shells is **not** this command's job: the
 SessionStart hook auto-provisions the fleet on every session start — missing
 shells are created from `templates/agents/` with the plugin default
 `model: inherit`, and stale bodies are synced to the current templates while
-each shell's `model:` line is preserved verbatim. That line is user-owned —
-the only thing the plugin never overwrites.
+each shell's `model:`/`thoughtLevel:` lines are preserved verbatim — never
+rewritten, never dropped, never injected when unset. Those lines are
+user-owned — the only things the plugin never overwrites.
 
 This command is the conversational way to edit the `model:` line: report the
 current bindings, optionally discover ZCode's models, and pin or reset lanes
-as asked. Templates never choose models, and the plugin never validates or
-judges them — whatever the user pins is what runs. Ask in the user's
-language; ask in small batches (1–3 questions per turn), always offering the
-sensible default so the user can just say "默认" (= leave it on `inherit`).
+as asked. It never touches `thoughtLevel:` — that pin is a hand edit in
+`~/.zcode/agents/switchman-<lane>.md`. Templates never choose models, and
+the plugin never validates or judges them — whatever the user pins is what
+runs. Ask in the user's language; ask in small batches (1–3 questions per
+turn), always offering the sensible default so the user can just say "默认"
+(= leave it on `inherit`).
 
 ## Step 0 — report current bindings
 

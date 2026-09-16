@@ -387,7 +387,8 @@ test("hook smoke: [ROUTE] carries numbers and the tier line for every absolute-k
     const block = ctx.slice(ctx.indexOf(route));
     assert.match(block, tierRe, `${sid}: tier instruction`);
     assert.match(block, /Dispatches go to \[Shells\] lanes via DELEGATION_V1\./, `${sid}: pointer`);
-    assert.ok(ctx.split("\n").length <= 4, `${sid}: [LANG] + ≤3 [ROUTE] lines total`);
+    // [2026-09-16]-[comment-format iron rule adds one always-on line to the per-turn injection]-[budget becomes [LANG]+[COMMENT]+≤3 [ROUTE] lines]
+    assert.ok(ctx.split("\n").length <= 5, `${sid}: [LANG] + [COMMENT] + ≤3 [ROUTE] lines total`);
   }
   fs.rmSync(proj, { recursive: true, force: true });
 });

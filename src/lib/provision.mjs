@@ -1,22 +1,20 @@
+// [2026-09-16]-[make thoughtLevel a user-owned line too; plugin never rewrites model/thoughtLevel in existing shells]-[user pins survive every sync; absent lines are never injected; only creation writes the built-in inherit]
 /**
  * Shell auto-provisioning — the plugin installs and updates its own fleet.
  *
  * Ownership split (the contract that makes auto-update safe):
- *   - shell body (everything except the user-owned line) is TEMPLATE-owned:
+ *   - shell body (everything except the user-owned lines) is TEMPLATE-owned:
  *     synced to the current template on every session start, so plugin
  *     updates propagate without any user action;
- *   - the `model:` line is USER-owned: preserved verbatim across syncs.
- *     Templates ship the neutral default — `model: inherit` follows the
- *     session default model — and pinning it is a manual per-user edit (by
- *     hand or via /switchman-setup), never judged or overwritten by the
- *     plugin.
- *
- * A file without a `model:` line normalizes to the template default
- * (behaviorally identical: follows the session default model). Everything
- * else is template-owned, so a legacy effort pin left in an installed shell
- * vanishes on the next sync — effort levels are managed platform-side, not
- * by the plugin. Fail-open: per-shell errors are reported, never thrown
- * past the caller.
+ *   - the `model:` and `thoughtLevel:` lines are USER-owned: whatever the
+ *     user set stands — carried into the synced body verbatim, never
+ *     rewritten, never normalized, never dropped, and never judged. The
+ *     plugin does not manage model or thoughtLevel configuration; the only
+ *     value it ever writes is the template's built-in `model: inherit` on
+ *     creation (shell file absent). An existing file that lacks a user line
+ *     stays without one — the template's inherit line is stripped in the
+ *     merge, so a synced frontmatter carries exactly the user's lines.
+ * Fail-open: per-shell errors are reported, never thrown past the caller.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -24,10 +22,11 @@ import { SHELLS } from "./shells.mjs";
 
 const COLOR_LINE_RE = /^color:[^\n]*$/m;
 
-// user-owned frontmatter line: extracted from an existing shell file and
-// carried into the synced body verbatim
+// user-owned frontmatter lines: extracted from an existing shell file and
+// carried into the synced body verbatim (absent → absent)
 const USER_LINES = [
   { field: "model", re: /^model:[^\n]*$/m },
+  { field: "thoughtLevel", re: /^thoughtLevel:[^\n]*$/m },
 ];
 
 export function templatePath(pluginRoot, name) {
@@ -44,13 +43,18 @@ export function extractUserLines(text) {
   return found;
 }
 
-/** Template body with the user's `model:` line in place. */
+/** Template body with the user's `model:`/`thoughtLevel:` lines in place. */
 export function mergeUserLines(templateText, userLines) {
   let out = templateText;
   let anchor = COLOR_LINE_RE; // the first inserted line lands after `color:`
   for (const { field, re } of USER_LINES) {
     const line = userLines[field];
-    if (!line) continue;
+    if (!line) {
+      // never set by the user → never present in the synced file: strip the
+      // template's own line (e.g. the built-in `model: inherit`)
+      out = out.replace(new RegExp(`${re.source}\\n?`, re.flags), "");
+      continue;
+    }
     const trimmed = String(line).trim();
     if (re.test(out)) out = out.replace(re, trimmed);
     // defensive: a template without this line — stack it under the anchor
@@ -63,8 +67,8 @@ export function mergeUserLines(templateText, userLines) {
 /**
  * Create missing shells and refresh stale bodies. Returns a report:
  *   { created: [name], updated: [name], unchanged: [name], failed: [{name, error}] }
- * `updated` covers stale bodies and unbound→inherit normalization only —
- * user-pinned `model:` lines are carried through unchanged either way.
+ * `updated` covers stale bodies only — user `model:`/`thoughtLevel:` lines
+ * are carried through unchanged, and absent ones stay absent.
  */
 export function provisionShells({ pluginRoot, agentsDir }) {
   const report = { created: [], updated: [], unchanged: [], failed: [] };

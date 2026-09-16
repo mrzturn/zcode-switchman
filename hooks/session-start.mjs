@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// [2026-09-16]-[report both user-owned pins in the [Sync] line]-[banner wording matches the model/thoughtLevel hands-off contract]
+// [2026-09-16]-[surface the code-comment format iron rule in the banner]-[[Comment] line joins [Rule]/[LANG] so the format rule is visible from turn 0]
 /**
  * SessionStart hook: auto-provision the fleet, render the banner, and hand
  * pending handover to a fresh context. Fail-open — any error only touches
@@ -23,6 +25,10 @@
  *               state self-vs-dispatch in one sentence and weigh context
  *               length. Opt-out via `"dispatch": "off"` in
  *               .switchman/settings.json (src/lib/route.mjs)
+ *   [Comment]   code-comment format iron rule: every comment follows
+ *               [yyyy-mm-dd]-[why]-[impact]. On by default; opt-out via
+ *               `"commentRule": "off"` in .switchman/settings.json
+ *               (src/lib/comment-rule.mjs)
  *   [LANG]      project language preference iron rule, or the first-run ask
  *               directive while unconfigured (src/lib/lang.mjs)
  *   [Handover]  pending handover, injected once, then the pointer is cleared
@@ -43,6 +49,7 @@ import {
   loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor, detectUiLocale, DEFAULT_LANG_CANDIDATES,
 } from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRuleLine } from "../src/lib/route.mjs";
+import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentBannerLine } from "../src/lib/comment-rule.mjs";
 import { estimateContext, formatContext } from "../src/lib/context.mjs";
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -115,7 +122,7 @@ function syncLine() {
       process.stderr.write(`[zcode-switchman] provision ${f.name}: ${f.error}\n`);
     }
   }
-  return `[Sync] shells auto-provisioned (${parts.join("; ")}); user model line preserved`;
+  return `[Sync] shells auto-provisioned (${parts.join("; ")}); user model/thoughtLevel lines preserved`;
 }
 
 function breakerLine(routing) {
@@ -173,6 +180,19 @@ function contextLine(sessionId, projectDir) {
   }
 }
 
+/** [Comment] code-comment format banner line (text rendered by comment-rule.mjs);
+ *  null when opted out or when the banner has no project context
+ *  (fail-open, never throws) */
+function commentLine(projectDir) {
+  if (!projectDir) return null;
+  try {
+    if (loadCommentRuleMode(projectDir) !== COMMENT_RULE_OFF) return renderCommentBannerLine();
+  } catch (err) {
+    process.stderr.write(`[zcode-switchman] comment-rule fail-open: ${err}\n`);
+  }
+  return null;
+}
+
 /** [LANG] iron-rule line when configured; first-run ask directive while not (fail-open, never throws) */
 function langLine(projectDir, sessionId) {
   if (!projectDir) return null;
@@ -214,6 +234,8 @@ try {
   if (ctx) lines.push(ctx);
   const rule = ruleLine(projectDir);
   if (rule) lines.push(rule);
+  const comment = commentLine(projectDir);
+  if (comment) lines.push(comment);
   const lang = langLine(projectDir, sessionId);
   if (lang) lines.push(lang);
   const handover = handoverLine(projectDir);
