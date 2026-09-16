@@ -67,10 +67,15 @@ import { spawnSync } from "node:child_process";
 
 const PLUGIN_ROOT = path.resolve(new URL("..", import.meta.url).pathname);
 
+// per-file state sandbox: the hooks' session-anchor cache (session-roots.json)
+// must never touch the developer's real ~/.zcode/state
+const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-route-state-"));
+
 function runHook(file, payload) {
   const r = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, "hooks", file)], {
     input: JSON.stringify(payload),
     encoding: "utf8",
+    env: { ...process.env, ZCODE_SWITCHMAN_STATE: stateDir },
   });
   return r.stdout.trim();
 }
@@ -78,14 +83,14 @@ function runHook(file, payload) {
 test("hook smoke: dispatch \"off\" drops [ROUTE] but keeps [LANG]; without the field [ROUTE] fires", () => {
   const off = sandboxProject();
   writeSettings(off, JSON.stringify({ v: 1, dispatch: "off", lang: { conversation: "en", comments: "en", docs: "en" } }));
-  const offCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: off, session_id: "s1" }))
+  const offCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: off, session_id: "s1a" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(offCtx.includes("[LANG]"), "lang iron rule survives the dispatch opt-out");
   assert.ok(!offCtx.includes("[ROUTE]"), "dispatch opt-out removes the [ROUTE] line");
 
   const on = sandboxProject();
   writeSettings(on, JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" } }));
-  const onCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: on, session_id: "s1" }))
+  const onCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: on, session_id: "s1b" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(onCtx.includes("[ROUTE]"), "without the dispatch field the [ROUTE] line fires");
   fs.rmSync(off, { recursive: true, force: true });
@@ -94,7 +99,7 @@ test("hook smoke: dispatch \"off\" drops [ROUTE] but keeps [LANG]; without the f
 
 test("hook smoke: unconfigured project — the first-run lang ask holds the [ROUTE] line back", () => {
   const dir = sandboxProject(); // no settings.json at all
-  const ctx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: dir, session_id: "s1" }))
+  const ctx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: dir, session_id: "s1c" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(ctx.includes("switchman-lang"), "first-run ask directive is injected");
   assert.ok(!ctx.includes("[ROUTE]"), "no [ROUTE] while the lang gate hard-denies dispatches");

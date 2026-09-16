@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// [2026-09-16]-[resolve projectDir from the session anchor and latch the gate on save]-[the captured answers always land in the anchored project root — never in the hook process's spawn cwd (e.g. home) — and the gate stays open for the session]
 /**
  * PostToolUse hook (matcher: AskUserQuestion): plugin-side persistence of the
  * project language preference. When the relayed ask carries the three
@@ -14,6 +15,7 @@ import {
   hasLangMarkerQuestions,
   saveLangFromQuestion,
 } from "../src/lib/lang.mjs";
+import { resolveProjectRoot, markLangGateOpen } from "../src/lib/project.mjs";
 
 function readStdinPayload() {
   try {
@@ -30,11 +32,13 @@ try {
   const tool = payload.tool_name || payload.toolName || "";
   if (tool !== "AskUserQuestion") process.exit(0); // matcher backstop
 
-  const projectDir = payload.cwd || process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const sessionId = payload.session_id || process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
+  const projectDir = resolveProjectRoot({ cwd: payload.cwd, sessionId });
   if (!projectDir || !hasLangMarkerQuestions(payload.tool_input)) process.exit(0);
 
   const saved = saveLangFromQuestion(payload.tool_input, payload.tool_response, projectDir);
   if (saved) {
+    markLangGateOpen(sessionId); // monotonic: this session's gate never re-closes
     process.stdout.write(
       JSON.stringify({
         hookSpecificOutput: {

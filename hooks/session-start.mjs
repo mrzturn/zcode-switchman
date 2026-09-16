@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // [2026-09-16]-[report both user-owned pins in the [Sync] line]-[banner wording matches the model/thoughtLevel hands-off contract]
 // [2026-09-16]-[surface the code-comment format iron rule in the banner]-[[Comment] line joins [Rule]/[LANG] so the format rule is visible from turn 0]
+// [2026-09-16]-[anchor the session project root here and pin it for all hooks]-[the first resolution pins the root; later per-call cwd drift (cd into a subdir, compact) can no longer move the lang gate's project root]
 /**
  * SessionStart hook: auto-provision the fleet, render the banner, and hand
  * pending handover to a fresh context. Fail-open — any error only touches
@@ -50,6 +51,7 @@ import {
 } from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRuleLine } from "../src/lib/route.mjs";
 import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentBannerLine } from "../src/lib/comment-rule.mjs";
+import { resolveProjectRoot, isLangGateOpen } from "../src/lib/project.mjs";
 import { estimateContext, formatContext } from "../src/lib/context.mjs";
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -193,13 +195,17 @@ function commentLine(projectDir) {
   return null;
 }
 
-/** [LANG] iron-rule line when configured; first-run ask directive while not (fail-open, never throws) */
+/** [LANG] iron-rule line when configured; first-run ask directive while not (fail-open, never throws).
+ *  A waived or already-opened (latched) session never sees the ask directive
+ *  again, even when the settings file later went missing. */
 function langLine(projectDir, sessionId) {
   if (!projectDir) return null;
   try {
     const loaded = loadLangConfig(projectDir);
     if (loaded) return renderLangLine(loaded.cfg, loaded.source);
-    if (!langWaivedFor(projectDir, sessionId)) return renderAskDirective(DEFAULT_LANG_CANDIDATES, detectUiLocale());
+    if (!langWaivedFor(projectDir, sessionId) && !isLangGateOpen(sessionId)) {
+      return renderAskDirective(DEFAULT_LANG_CANDIDATES, detectUiLocale(), projectDir);
+    }
   } catch (err) {
     process.stderr.write(`[zcode-switchman] lang fail-open: ${err}\n`);
   }
@@ -213,11 +219,11 @@ try {
     process.env.ZCODE_SESSION_ID ||
     process.env.CLAUDE_SESSION_ID ||
     "";
-  const projectDir =
-    payload.cwd ||
-    process.env.ZCODE_PROJECT_DIR ||
-    process.env.CLAUDE_PROJECT_DIR ||
-    process.cwd();
+  // session-anchored project root: first resolution pins it (this hook in
+  // practice — its cwd is the session's initial directory); the compact /
+  // resume events that fire later only read the pin, so a drifted shell cwd
+  // can never move the lang gate's project root mid-session
+  const projectDir = resolveProjectRoot({ cwd: payload.cwd, sessionId });
 
   const routing = loadRouting();
   try { cleanExpired(routing); } catch { /* fail-open */ }

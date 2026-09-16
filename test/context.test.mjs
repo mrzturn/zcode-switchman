@@ -394,20 +394,21 @@ test("hook smoke: [ROUTE] carries numbers and the tier line for every absolute-k
 });
 
 test("hook smoke: degradation — no rollout, contextEstimate off, dispatch off", () => {
+  // distinct session ids per project: the anchor cache pins one root per id
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-ctx-empty-"));
   const proj = sandboxProject();
-  const fallback = ctxOf(runHook("user-prompt-submit.mjs", { session_id: "test-frugal", prompt: "hi", cwd: proj }, { ZCODE_ROLLOUT_DIR: emptyDir }));
+  const fallback = ctxOf(runHook("user-prompt-submit.mjs", { session_id: "test-degr-fallback", prompt: "hi", cwd: proj }, { ZCODE_ROLLOUT_DIR: emptyDir }));
   const fallbackRoute = fallback.split("\n").find((l) => l.startsWith("[ROUTE]"));
   assert.equal(fallbackRoute, renderRouteLine(), "no rollout file → the canonical static text verbatim");
   assert.ok(!fallback.includes("context ≈"));
 
   const projOff = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, contextEstimate: "off" }));
-  const offCtx = ctxOf(runHook("user-prompt-submit.mjs", { session_id: "test-frugal", prompt: "hi", cwd: projOff }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
+  const offCtx = ctxOf(runHook("user-prompt-submit.mjs", { session_id: "test-degr-off", prompt: "hi", cwd: projOff }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
   assert.equal(offCtx.split("\n").find((l) => l.startsWith("[ROUTE]")), renderRouteLine(), "contextEstimate off → static text, [ROUTE] kept");
   assert.ok(!offCtx.includes("context ≈"));
 
   const projDispatchOff = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "off" }));
-  const dispatchOffCtx = ctxOf(runHook("user-prompt-submit.mjs", { session_id: "test-frugal", prompt: "hi", cwd: projDispatchOff }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
+  const dispatchOffCtx = ctxOf(runHook("user-prompt-submit.mjs", { session_id: "test-degr-dispatch", prompt: "hi", cwd: projDispatchOff }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
   assert.ok(!dispatchOffCtx.includes("[ROUTE]"), "dispatch off → no [ROUTE] at all (unchanged semantics)");
 
   fs.rmSync(emptyDir, { recursive: true, force: true });
@@ -429,7 +430,7 @@ test("hook smoke: session-start banner carries [Context] with the tier name; omi
   assert.ok(!withoutCtx.includes("[Context]"), "no estimate → line silently omitted");
 
   const projOff = sandboxProject(JSON.stringify({ v: 1, lang: {}, contextEstimate: "off" }));
-  const offCtx = ctxOf(runHook("session-start.mjs", { session_id: "test-tight", cwd: projOff }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
+  const offCtx = ctxOf(runHook("session-start.mjs", { session_id: "test-tight-ctx-off", cwd: projOff }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
   assert.ok(!offCtx.includes("[Context]"), "contextEstimate off → no [Context] line");
   fs.rmSync(proj, { recursive: true, force: true });
   fs.rmSync(projOff, { recursive: true, force: true });
@@ -518,8 +519,10 @@ const editPayload = (sessionId, project, tool = "Edit") => ({
 test("hook smoke: write-guard warns once per turn above contextWarnAt, non-blocking schema", () => {
   const proj = sandboxProject(); // default derived warnAt 90k; test-tight est = 110k
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
+  const sid = "test-tight-wg"; // rollout fixture id + unique anchor id (one id, one project)
+  writeRollout(sid, rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
 
-  const first = runHook("pre-tool-use.mjs", editPayload("test-tight", proj), env);
+  const first = runHook("pre-tool-use.mjs", editPayload(sid, proj), env);
   assert.equal(first.status, 0, "exit 0 — nothing blocked");
   const doc = JSON.parse(first.stdout);
   assert.deepEqual(
@@ -533,8 +536,10 @@ test("hook smoke: write-guard warns once per turn above contextWarnAt, non-block
   assert.match(doc.hookSpecificOutput.additionalContext, /refresh the handover doc first/);
 
   // custom tiers → the guard derives from the effective tiers[1] and renders accordingly
+  // (own session id + own fixture: the anchor cache pins settings per id)
   const projCustom = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, contextTiers: [10_000, 20_000, 30_000] }));
-  const custom = runHook("pre-tool-use.mjs", editPayload("test-tight", projCustom), env);
+  writeRollout("test-tight-wg-custom", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const custom = runHook("pre-tool-use.mjs", editPayload("test-tight-wg-custom", projCustom), env);
   assert.match(
     JSON.parse(custom.stdout).hookSpecificOutput.additionalContext,
     /^\[Context\] ≈ 110k\/1M \(11%\) — above the 20k write-guard:/,
@@ -542,12 +547,12 @@ test("hook smoke: write-guard warns once per turn above contextWarnAt, non-block
   );
   fs.rmSync(projCustom, { recursive: true, force: true });
 
-  const second = runHook("pre-tool-use.mjs", editPayload("test-tight", proj), env);
+  const second = runHook("pre-tool-use.mjs", editPayload(sid, proj), env);
   assert.equal(second.stdout, "", "same turn, second write → no second warning");
 
   // a new user prompt re-arms the guard
-  runHook("user-prompt-submit.mjs", { session_id: "test-tight", prompt: "hi", cwd: proj }, env);
-  const reArmed = runHook("pre-tool-use.mjs", editPayload("test-tight", proj), env);
+  runHook("user-prompt-submit.mjs", { session_id: sid, prompt: "hi", cwd: proj }, env);
+  const reArmed = runHook("pre-tool-use.mjs", editPayload(sid, proj), env);
   assert.match(JSON.parse(reArmed.stdout).hookSpecificOutput.additionalContext, /write-guard/, "reset → warns again");
   fs.rmSync(proj, { recursive: true, force: true });
 });
@@ -556,14 +561,15 @@ test("hook smoke: write-guard silent below the guard, without an estimate, or fo
   const proj = sandboxProject();
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
 
-  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-frugal", proj), env).stdout, "", "70k ≤ 90k → silent");
-  assert.equal(runHook("pre-tool-use.mjs", editPayload("no-such-session", proj), env).stdout, "", "no estimate → silent");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-frugal-wg", proj), env).stdout, "", "70k ≤ 90k → silent");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("no-such-session-wg", proj), env).stdout, "", "no estimate → silent");
 
   // MultiEdit and NotebookEdit are matched too, and share the same per-turn flag
-  const m1 = runHook("pre-tool-use.mjs", editPayload("test-compact", proj, "MultiEdit"), env);
+  writeRollout("test-compact-wg", rec({ inputTokens: 140_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const m1 = runHook("pre-tool-use.mjs", editPayload("test-compact-wg", proj, "MultiEdit"), env);
   assert.match(JSON.parse(m1.stdout).hookSpecificOutput.additionalContext, /write-guard/, "MultiEdit warns");
-  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-compact", proj, "NotebookEdit"), env).stdout, "", "already warned this turn");
-  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-compact", proj, "Write"), env).stdout, "", "Write silenced by the same flag");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-compact-wg", proj, "NotebookEdit"), env).stdout, "", "already warned this turn");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-compact-wg", proj, "Write"), env).stdout, "", "Write silenced by the same flag");
   fs.rmSync(proj, { recursive: true, force: true });
 });
 
@@ -571,7 +577,8 @@ test("hook smoke: corrupt write-guard state file degrades to a warning (fail-ope
   const proj = sandboxProject();
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
   fs.writeFileSync(path.join(proj, LANG_SETTINGS_DIRNAME, "context-warn.json"), "{corrupt");
-  const out = runHook("pre-tool-use.mjs", editPayload("test-tight", proj), env);
+  writeRollout("test-tight-corrupt", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const out = runHook("pre-tool-use.mjs", editPayload("test-tight-corrupt", proj), env);
   const doc = JSON.parse(out.stdout);
   assert.equal(out.status, 0, "exit 0 — nothing blocked");
   assert.match(doc.hookSpecificOutput.additionalContext, /write-guard/, "corrupt flag → warn");

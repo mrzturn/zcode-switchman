@@ -20,6 +20,7 @@ export function stateDir() {
 export const statePaths = {
   routing: () => path.join(stateDir(), "routing.json"),
   failuresLog: () => path.join(stateDir(), "failures.log"),
+  sessionRoots: () => path.join(stateDir(), "session-roots.json"),
 };
 
 export function readJson(p) {

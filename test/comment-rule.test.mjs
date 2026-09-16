@@ -63,10 +63,15 @@ import { spawnSync } from "node:child_process";
 
 const PLUGIN_ROOT = path.resolve(new URL("..", import.meta.url).pathname);
 
+// per-file state sandbox: the hooks' session-anchor cache (session-roots.json)
+// must never touch the developer's real ~/.zcode/state
+const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-comment-state-"));
+
 function runHook(file, payload) {
   const r = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, "hooks", file)], {
     input: JSON.stringify(payload),
     encoding: "utf8",
+    env: { ...process.env, ZCODE_SWITCHMAN_STATE: stateDir },
   });
   return r.stdout.trim();
 }
@@ -74,7 +79,7 @@ function runHook(file, payload) {
 test("hook smoke: commentRule \"off\" drops [COMMENT] but keeps [LANG]/[ROUTE]; without the field [COMMENT] fires", () => {
   const off = sandboxProject();
   writeSettings(off, JSON.stringify({ v: 1, commentRule: "off", lang: { conversation: "en", comments: "en", docs: "en" } }));
-  const offCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: off, session_id: "s1" }))
+  const offCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: off, session_id: "s1a" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(offCtx.includes("[LANG]"), "lang iron rule survives the comment-rule opt-out");
   assert.ok(offCtx.includes("[ROUTE]"), "route iron rule survives the comment-rule opt-out");
@@ -82,7 +87,7 @@ test("hook smoke: commentRule \"off\" drops [COMMENT] but keeps [LANG]/[ROUTE]; 
 
   const on = sandboxProject();
   writeSettings(on, JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" } }));
-  const onCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: on, session_id: "s1" }))
+  const onCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: on, session_id: "s1b" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(onCtx.includes("[COMMENT]"), "without the commentRule field the [COMMENT] line fires");
   fs.rmSync(off, { recursive: true, force: true });
@@ -91,7 +96,7 @@ test("hook smoke: commentRule \"off\" drops [COMMENT] but keeps [LANG]/[ROUTE]; 
 
 test("hook smoke: unconfigured project — [COMMENT] stays while the first-run lang ask holds [ROUTE] back", () => {
   const dir = sandboxProject(); // no settings.json at all
-  const ctx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: dir, session_id: "s1" }))
+  const ctx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: dir, session_id: "s1c" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(ctx.includes("switchman-lang"), "first-run ask directive is injected");
   assert.ok(!ctx.includes("[ROUTE]"), "no [ROUTE] while the lang gate hard-denies dispatches");

@@ -143,6 +143,33 @@ test("lang gate: configured / ask disabled / waived → allow", () => {
   assert.equal(langGateDecision({ tool: "task", configured: false, askEnabled: true, waived: true }), null);
 });
 
+test("lang gate: latched session (gate already opened once) → allow even while unconfigured", () => {
+  for (const tool of ["bash", "edit", "write", "agent", "task"]) {
+    assert.equal(langGateDecision({ tool, configured: false, askEnabled: true, waived: false, latched: true }), null);
+  }
+});
+
+test("ask directive renders absolute settings/waiver targets when projectDir is known; placeholder survives without it", () => {
+  const d = renderAskDirective(DEFAULT_LANG_CANDIDATES, "en", "/tmp/switchman-target");
+  assert.ok(d.includes("/tmp/switchman-target/.switchman/settings.json"));
+  assert.ok(d.includes("/tmp/switchman-target/.switchman/lang-waived.json"));
+  assert.ok(!d.includes("<project>"));
+  assert.ok(renderAskDirective().includes("<project>/.switchman/settings.json"));
+});
+
+test("lang gate denial names the absolute path actually checked (drift-debuggable, no more undefined <project>)", () => {
+  const d = langGateDecision({
+    tool: "bash", configured: false, askEnabled: true, waived: false, projectDir: "/tmp/switchman-target",
+  });
+  assert.ok(d.includes("BLOCKED"));
+  assert.ok(d.includes("/tmp/switchman-target/.switchman/settings.json"));
+  assert.ok(d.includes("session-anchored project root"));
+  assert.ok(!d.includes("<project>"));
+  // without a projectDir the placeholder form stays (pure-function back-compat)
+  assert.ok(langGateDecision({ tool: "bash", configured: false, askEnabled: true, waived: false })
+    .includes("<project>/.switchman/settings.json"));
+});
+
 test("isLangWriteAllowed: only settings.json / lang-waived.json under .switchman pass", () => {
   const dir = sandboxProject();
   assert.ok(isLangWriteAllowed("write", { file_path: path.join(dir, ".switchman", LANG_SETTINGS_FILE) }, dir));
@@ -285,11 +312,16 @@ import { spawnSync } from "node:child_process";
 const PLUGIN_ROOT = path.resolve(new URL("..", import.meta.url).pathname);
 const hook = (name) => path.join(PLUGIN_ROOT, "hooks", name);
 
+// per-file state sandbox: the hooks' session-anchor cache (session-roots.json)
+// must never touch the developer's real ~/.zcode/state
+const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-lang-state-"));
+
 function runHook(file, payload, { cwd } = {}) {
   const r = spawnSync(process.execPath, [hook(file)], {
     input: JSON.stringify(payload),
     encoding: "utf8",
     cwd,
+    env: { ...process.env, ZCODE_SWITCHMAN_STATE: stateDir },
   });
   return { stdout: r.stdout.trim(), stderr: r.stderr, status: r.status };
 }
@@ -376,14 +408,16 @@ test("hook smoke: dispatch off stands the breaker gate down (shell dispatch pass
 });
 
 test("hook smoke: user-prompt-submit injects the ask directive, the [LANG] line, or for a waived session only [ROUTE]", () => {
+  // distinct session ids per project: the anchor cache pins one root per id
   const unconfigured = sandbox(false);
-  const askCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: unconfigured, session_id: "s1" }).stdout)
+  const askCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: unconfigured, session_id: "s1a" }).stdout)
     .hookSpecificOutput.additionalContext;
   assert.match(askCtx, /switchman-lang 1\/3/);
   assert.doesNotMatch(askCtx, /\[ROUTE\]/, "the first-run ask holds the [ROUTE] line back");
+  assert.ok(askCtx.includes(`${unconfigured}/.switchman/settings.json`), "ask directive names the absolute settings path");
 
   const configured = sandbox(true);
-  const line = runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: configured, session_id: "s1" });
+  const line = runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: configured, session_id: "s1b" });
   const ctx = JSON.parse(line.stdout).hookSpecificOutput.additionalContext;
   assert.match(ctx, /^\[LANG\] conversation=zh-CN comments=zh-CN docs=en \(source: project settings\)/);
   assert.match(ctx, /IRON RULE/);
@@ -397,12 +431,39 @@ test("hook smoke: user-prompt-submit injects the ask directive, the [LANG] line,
     "waiver is session-scoped: no lang content for this session (the independent [ROUTE] line may still fire)",
   );
   assert.match(
-    JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: waived, session_id: "s1" }).stdout)
+    JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "hi", cwd: waived, session_id: "s1c" }).stdout)
       .hookSpecificOutput.additionalContext,
     /switchman-lang 1\/3/,
     "waiver is session-scoped",
   );
   for (const d of [unconfigured, configured, waived]) fs.rmSync(d, { recursive: true, force: true });
+});
+
+test("hook smoke: cd into a subdirectory never re-closes the gate (session-anchored root)", () => {
+  const dir = sandbox(false);
+  const sub = path.join(dir, "mysql57");
+  fs.mkdirSync(sub, { recursive: true });
+  const sid = "sess_drift";
+  // first gated call anchors the session root at the session's initial cwd
+  const first = runHook("pre-tool-use.mjs", { tool_name: "Bash", tool_input: { command: "ls" }, cwd: dir, session_id: sid });
+  assert.equal(JSON.parse(first.stdout).hookSpecificOutput.permissionDecision, "deny", "unconfigured → gated");
+  assert.ok(
+    JSON.parse(first.stdout).hookSpecificOutput.permissionDecisionReason.includes(`${dir}/.switchman/settings.json`),
+    "denial names the absolute checked path",
+  );
+  // config lands at the anchored root; the shell then cd's into a subdirectory
+  fs.mkdirSync(path.join(dir, ".switchman"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, ".switchman", LANG_SETTINGS_FILE),
+    JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" } }),
+  );
+  const drifted = runHook("pre-tool-use.mjs", { tool_name: "Bash", tool_input: { command: "docker ps" }, cwd: sub, session_id: sid });
+  assert.equal(drifted.stdout, "", "drifted cwd still resolves the anchored root — the gate stays open");
+  // latch: even with the settings file gone, this session never re-closes
+  fs.rmSync(path.join(dir, ".switchman"), { recursive: true, force: true });
+  const latched = runHook("pre-tool-use.mjs", { tool_name: "Bash", tool_input: { command: "ls" }, cwd: sub, session_id: sid });
+  assert.equal(latched.stdout, "", "gate opened once for this session → monotonic, no re-ask");
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("hook smoke: lang-capture persists a marker ask and ignores unrelated tools", () => {

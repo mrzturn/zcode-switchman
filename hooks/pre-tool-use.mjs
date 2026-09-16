@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // [2026-09-16]-[add gate 0.55: hint-only DB advisory when a Bash command invokes a raw database client]-[raw mysql/redis-cli calls get nudged toward the db-query skill, never denied]
+// [2026-09-16]-[anchor every projectDir on the session root instead of the live payload cwd]-[a `cd` into a subdirectory can no longer make .switchman/settings.json "disappear" and re-close the lang gate]
 /**
  * PreToolUse hook (matcher: Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash|
  * Read|Glob|Grep|WebFetch|WebSearch).
@@ -10,6 +11,10 @@
  *    no session waiver), deny Write/Edit/Bash and Agent/Task dispatches with
  *    an ask-first error; reads stay allowed. Writes targeting the language
  *    settings file or the waiver file pass (fallback persistence paths).
+ *    The project root is session-anchored (src/lib/project.mjs: cached per
+ *    session, env-project-dir or nearest .switchman/.git owner), so a `cd`
+ *    into a subdirectory cannot re-close an open gate; once the gate has
+ *    opened for a session (config observed/saved or waived) it stays open.
  *    See src/lib/lang.mjs.
  * 0.4 shell context guard (sess_subagent_* sessions, all matched tools) —
  *    tier the shell's live estimate against contextShellTiers and inject one
@@ -65,6 +70,7 @@ import {
   langWaivedFor,
   isLangWriteAllowed,
 } from "../src/lib/lang.mjs";
+import { resolveProjectRoot, isLangGateOpen, markLangGateOpen } from "../src/lib/project.mjs";
 import { DISPATCH_OFF, loadDispatchMode } from "../src/lib/route.mjs";
 import { contextWriteWarning, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
 import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
@@ -103,20 +109,32 @@ try {
   const tool = payload.tool_name || payload.toolName || "";
   const toolLc = tool.toLowerCase();
 
+  const sessionId = payload.session_id ||
+    process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
+
+  // Session-anchored project root, resolved at most once per hook process:
+  // payload.cwd is the live per-call cwd (drifts with cd), so every
+  // .switchman/settings.json consumer must go through this instead.
+  let projectRootMemo;
+  const projectRoot = () => (projectRootMemo ??= resolveProjectRoot({ cwd: payload.cwd, sessionId }));
+
   // Gate 0: language preference (all matched tools; disk check per gated call, cheap)
   if (LANG_GATE_TOOLS.has(toolLc)) {
-    const projectDir = payload.cwd ||
-      process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    const projectDir = projectRoot();
     if (projectDir && !isLangWriteAllowed(toolLc, payload.tool_input, projectDir)) {
-      const sessionId = payload.session_id ||
-        process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
       let reason = null;
       try {
+        const configured = !!loadLangConfig(projectDir);
+        const waived = langWaivedFor(projectDir, sessionId);
+        // monotonic gate: once opened for this session it never re-closes
+        if ((configured || waived) && !isLangGateOpen(sessionId)) markLangGateOpen(sessionId);
         reason = langGateDecision({
           tool: toolLc,
-          configured: !!loadLangConfig(projectDir),
+          configured,
           askEnabled: true,
-          waived: langWaivedFor(projectDir, sessionId),
+          waived,
+          latched: isLangGateOpen(sessionId),
+          projectDir,
         });
       } catch (err) {
         process.stderr.write(`[zcode-switchman] lang gate fail-open: ${err}\n`);
@@ -127,9 +145,6 @@ try {
       }
     }
   }
-
-  const sessionId = payload.session_id ||
-    process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
 
   // Gate 0.4/0.45: shell sessions — ro-bash gate for Bash (deny wins over the
   // advisory: a deny emits the deny alone), then the shell context guard
@@ -152,8 +167,7 @@ try {
       }
     }
     try {
-      const projectDir = payload.cwd ||
-        process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+      const projectDir = projectRoot();
       const warn = contextShellAdvisory(sessionId, projectDir);
       if (warn) {
         process.stdout.write(
@@ -175,8 +189,7 @@ try {
   // additionalContext only, never a permission decision; silent without an estimate)
   if (CONTEXT_WRITE_TOOLS.has(toolLc)) {
     try {
-      const projectDir = payload.cwd ||
-        process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+      const projectDir = projectRoot();
       const warn = contextWriteWarning(sessionId, projectDir);
       if (warn) {
         process.stdout.write(
@@ -192,8 +205,7 @@ try {
   // in the command hints at the read-only db-query skill; never a permission decision)
   if (toolLc === "bash") {
     try {
-      const projectDir = payload.cwd ||
-        process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+      const projectDir = projectRoot();
       if (loadDbHintMode(projectDir) !== DB_HINT_OFF) {
         const command = payload.tool_input && payload.tool_input.command;
         if (detectRawDbClient(command)) {
@@ -223,8 +235,7 @@ try {
   // off with it — the breaker stands down with them instead of denying what
   // the project opted out of.
   // (loadDispatchMode is fail-open: unreadable settings mean "fleet".)
-  const projectDir = payload.cwd ||
-    process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectDir = projectRoot();
   if (loadDispatchMode(projectDir) === DISPATCH_OFF) process.exit(0);
 
   const routing = loadRouting();

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // [2026-09-16]-[inject the code-comment format iron rule on every turn]-[[COMMENT] now rides alongside [LANG]/[ROUTE] with the same always-on semantics]
 // [2026-09-16]-[inject the hint-only [DB] advisory when the prompt looks database-related]-[DB turns nudge toward the db-query skill without any gate]
+// [2026-09-16]-[resolve projectDir from the session anchor, not the live payload cwd]-[the [LANG]/[COMMENT]/[ROUTE]/[DB] lines keep reading the same .switchman/settings.json even after the shell cd'd into a subdirectory]
 /**
  * UserPromptSubmit hook: per-turn context lines. The [LANG] iron-rule line
  * (configured projects) or the first-run ask directive (unconfigured, not
@@ -32,6 +33,7 @@ import { DISPATCH_OFF, loadDispatchMode, renderRouteLine } from "../src/lib/rout
 import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentRuleLine } from "../src/lib/comment-rule.mjs";
 import { DB_HINT_OFF, loadDbHintMode, detectDbIntent, renderDbHintPromptLine } from "../src/lib/dbhint.mjs";
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
+import { resolveProjectRoot, isLangGateOpen } from "../src/lib/project.mjs";
 
 function readStdinPayload() {
   try {
@@ -46,7 +48,7 @@ function readStdinPayload() {
 try {
   const payload = readStdinPayload();
   const sessionId = payload.session_id || process.env.ZCODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
-  const projectDir = payload.cwd || process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectDir = resolveProjectRoot({ cwd: payload.cwd, sessionId });
 
   // new user turn → re-arm the PreToolUse write-guard (one advisory per turn)
   try { resetContextWarn(projectDir, sessionId); } catch { /* fail-open */ }
@@ -57,8 +59,8 @@ try {
   if (projectDir) {
     const loaded = loadLangConfig(projectDir);
     if (loaded) lang = renderLangLine(loaded.cfg, loaded.source);
-    else if (!langWaivedFor(projectDir, sessionId)) {
-      lang = renderAskDirective(DEFAULT_LANG_CANDIDATES, detectUiLocale());
+    else if (!langWaivedFor(projectDir, sessionId) && !isLangGateOpen(sessionId)) {
+      lang = renderAskDirective(DEFAULT_LANG_CANDIDATES, detectUiLocale(), projectDir);
       asking = true;
     }
   }

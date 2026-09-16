@@ -230,11 +230,16 @@ export const UI_LOCALE_ASK_TEXT = Object.freeze({
 /**
  * First-run ask directive: one AskUserQuestion call, three marker questions,
  * gate-backed. Question texts follow the UI locale (normalized, English
- * fallback); the directive body (model instructions) stays English.
+ * fallback); the directive body (model instructions) stays English. With a
+ * projectDir the settings/waiver targets render as absolute paths — the
+ * model must not guess where the gate looks after its shell cwd drifts.
  */
-export function renderAskDirective(candidates = DEFAULT_LANG_CANDIDATES, locale = "en") {
+export function renderAskDirective(candidates = DEFAULT_LANG_CANDIDATES, locale = "en", projectDir = "") {
   const asks = UI_LOCALE_ASK_TEXT[normalizeUiLocale(locale) ?? "en"] ?? UI_LOCALE_ASK_TEXT.en;
   const opts = candidates.join(" / ");
+  const proj = projectDir ? path.resolve(projectDir) : "<project>";
+  const settingsTarget = path.join(proj, LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE);
+  const waiverTarget = path.join(proj, LANG_SETTINGS_DIRNAME, LANG_WAIVED_FILE);
   return [
     `[zcode-switchman] Project language preference is not yet configured for this project. Before starting`,
     `the user's task, call the AskUserQuestion tool ONCE with exactly these three questions (question texts`,
@@ -244,12 +249,12 @@ export function renderAskDirective(candidates = DEFAULT_LANG_CANDIDATES, locale 
     `3. question "${asks[2]}", same options`,
     `The user may also type any other language (custom answer) — relay it verbatim as the option text.`,
     `HARD GATE: Bash / Write / Edit and shell dispatches are denied in this project until the answers are saved —`,
-    `asking first is not optional. Persistence: the plugin captures the answers itself and writes <project>/.switchman/settings.json;`,
+    `asking first is not optional. Persistence: the plugin captures the answers itself and writes ${settingsTarget};`,
     `if that file still does not exist right after the tool returns, write it yourself exactly once:`,
     `{"v":1,"configuredAt":"<iso>","lang":{"conversation":"<tag>","comments":"<tag>","docs":"<tag>"}} (well-known labels map to tags:`,
     `English→en, 简体中文→zh-CN, 繁體中文→zh-TW, 日本語→ja, 한국어→ko, Español→es, Français→fr, Deutsch→de, Italiano→it,`,
     `Português→pt, Русский→ru; anything else verbatim) — the gate opens the moment the file parses.`,
-    `If the user declines, write {"v":1,"sessionId":"<this session id>"} to <project>/.switchman/lang-waived.json instead —`,
+    `If the user declines, write {"v":1,"sessionId":"<this session id>"} to ${waiverTarget} instead —`,
     `the gate is waived for this session and the ask stops resurfacing. After saving: confirm the preferences in one line,`,
     `then continue the user's task in the chosen conversation language.`,
   ].join("\n");
@@ -262,17 +267,27 @@ export function renderLangLine(cfg, source) {
   }) — project-level language config, IRON RULE: reply and reason in the conversation language; code comments AND commit messages follow comments; every generated document follows docs (overrides any bundled skill's English-by-default). User ad-hoc language requests are single-turn exceptions: honor the current reply, then revert to this config automatically.`;
 }
 
-/** Pure gate decision: null = allow, string = the denial message shown to the model */
-export function langGateDecision({ tool, configured, askEnabled = true, waived = false }) {
-  if (!askEnabled || configured || waived) return null;
+/**
+ * Pure gate decision: null = allow, string = the denial message shown to the
+ * model. `latched` is the session-scoped "gate already opened" flag (it never
+ * re-closes mid-session once set); with a projectDir the denial names the
+ * absolute path the gate actually checked, so a stuck gate is debuggable
+ * instead of a riddle.
+ */
+export function langGateDecision({ tool, configured, askEnabled = true, waived = false, latched = false, projectDir = "" }) {
+  if (!askEnabled || configured || waived || latched) return null;
   if (!LANG_GATE_TOOLS.has(tool)) return null;
+  const proj = projectDir ? path.resolve(projectDir) : "<project>";
+  const settingsTarget = path.join(proj, LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE);
+  const waiverTarget = path.join(proj, LANG_SETTINGS_DIRNAME, LANG_WAIVED_FILE);
   return [
     `[zcode-switchman] BLOCKED: this project's language preference is not configured yet. Ask the user ONCE via`,
     `AskUserQuestion with exactly the three "switchman-lang n/3" questions (see the ask directive) and wait for the`,
-    `answers — the plugin persists them and unblocks this call automatically, then retry. Reads stay allowed. If the`,
-    `plugin did not save it, write <project>/.switchman/settings.json {"v":1,"lang":{"conversation":"..","comments":"..","docs":".."}}`,
+    `answers — the plugin persists them and unblocks this call automatically, then retry. Reads stay allowed. The gate`,
+    `checks ${settingsTarget} (the session-anchored project root — unaffected by your shell's current directory). If the`,
+    `plugin did not save it, write ${settingsTarget} {"v":1,"lang":{"conversation":"..","comments":"..","docs":".."}}`,
     `yourself — the gate opens the moment the file parses. If the user declines, write {"v":1,"sessionId":"<this session id>"}`,
-    `to <project>/.switchman/lang-waived.json (gate waived for this session). If you are a subagent without user access:`,
+    `to ${waiverTarget} (gate waived for this session). If you are a subagent without user access:`,
     `stop and report this denial to the dispatcher.`,
   ].join(" ");
 }

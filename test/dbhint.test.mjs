@@ -66,10 +66,15 @@ import { spawnSync } from "node:child_process";
 const PLUGIN_ROOT = path.resolve(new URL("..", import.meta.url).pathname);
 const LANG_ON = JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" } });
 
+// per-file state sandbox: the hooks' session-anchor cache (session-roots.json)
+// must never touch the developer's real ~/.zcode/state
+const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-dbhint-state-"));
+
 function runHook(file, payload) {
   const r = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, "hooks", file)], {
     input: JSON.stringify(payload),
     encoding: "utf8",
+    env: { ...process.env, ZCODE_SWITCHMAN_STATE: stateDir },
   });
   return r.stdout.trim();
 }
@@ -77,17 +82,17 @@ function runHook(file, payload) {
 test("hook smoke: UserPromptSubmit injects [DB] only for DB-looking prompts; \"dbHint\": \"off\" kills it", () => {
   const dir = sandboxProject();
   writeSettings(dir, LANG_ON);
-  const dbCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "查一下库里订单表今天的记录", cwd: dir, session_id: "s1" }))
+  const dbCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "查一下库里订单表今天的记录", cwd: dir, session_id: "dbh1" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(dbCtx.includes("[DB]"), "DB-looking prompt gets the hint line");
   assert.ok(dbCtx.includes("db-query"), "hint points at the skill");
 
-  const plainCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "重构这个函数", cwd: dir, session_id: "s1" }))
+  const plainCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "重构这个函数", cwd: dir, session_id: "dbh1" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(!plainCtx.includes("[DB]"), "unrelated prompt gets no hint");
 
   writeSettings(dir, JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dbHint: "off" }));
-  const offCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "查一下数据库", cwd: dir, session_id: "s1" }))
+  const offCtx = JSON.parse(runHook("user-prompt-submit.mjs", { prompt: "查一下数据库", cwd: dir, session_id: "dbh1" }))
     .hookSpecificOutput.additionalContext;
   assert.ok(!offCtx.includes("[DB]"), "opt-out removes the hint even for a DB prompt");
   fs.rmSync(dir, { recursive: true, force: true });
@@ -100,12 +105,12 @@ test("hook smoke: PreToolUse Bash advisory fires on raw mysql and stays non-bloc
     tool_name: "Bash",
     tool_input: { command: 'mysql -h 127.0.0.1 -u ro -e "SELECT COUNT(*) FROM users"' },
     cwd: dir,
-    session_id: "s1",
+    session_id: "dbh2",
   });
   assert.ok(raw.includes("[DB]"), "raw client call gets the advisory");
   assert.ok(!raw.includes("permissionDecision"), "hint-only: never a permission decision");
   assert.equal(runHook("pre-tool-use.mjs", {
-    tool_name: "Bash", tool_input: { command: "ls -la" }, cwd: dir, session_id: "s1",
+    tool_name: "Bash", tool_input: { command: "ls -la" }, cwd: dir, session_id: "dbh2",
   }), "", "plain command → no output at all");
   fs.rmSync(dir, { recursive: true, force: true });
 });
