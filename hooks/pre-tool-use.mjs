@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// [2026-09-16]-[add gate 0.55: hint-only DB advisory when a Bash command invokes a raw database client]-[raw mysql/redis-cli calls get nudged toward the db-query skill, never denied]
 /**
  * PreToolUse hook (matcher: Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash|
  * Read|Glob|Grep|WebFetch|WebSearch).
@@ -30,6 +31,12 @@
  *    one-shot-per-user-turn advisory via hookSpecificOutput.additionalContext.
  *    Strictly non-blocking: never a permission decision, never deny; silent
  *    when no estimate. See src/lib/context.mjs (contextWriteWarning).
+ * 0.55 db-skill advisory (Bash, non-shell sessions) — when the command
+ *    invokes a raw database client (mysql / mysqldump / redis-cli …), inject
+ *    a hint-only nudge toward the zcode-switchman:db-query skill via
+ *    hookSpecificOutput.additionalContext. Strictly non-blocking: never a
+ *    permission decision. Off via settings.json `"dbHint": "off"`. See
+ *    src/lib/dbhint.mjs.
  * 1. dispatch gate (Agent|Task only) — one gate per shell dispatch:
  *   a. breaker — windowed failure circuit, auto-heals (~10 min)
  * Dispatches to non-switchman agents (built-ins etc.) are out of scope: allow.
@@ -61,6 +68,7 @@ import {
 import { DISPATCH_OFF, loadDispatchMode } from "../src/lib/route.mjs";
 import { contextWriteWarning, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
 import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
+import { DB_HINT_OFF, loadDbHintMode, detectRawDbClient, renderDbHintBashLine } from "../src/lib/dbhint.mjs";
 
 /** Tools that carry the context write-guard advisory */
 const CONTEXT_WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit"]);
@@ -177,6 +185,27 @@ try {
       }
     } catch (err) {
       process.stderr.write(`[zcode-switchman] context write-guard fail-open: ${err}\n`);
+    }
+  }
+
+  // Gate 0.55: db-skill advisory (Bash, non-blocking — a raw database client
+  // in the command hints at the read-only db-query skill; never a permission decision)
+  if (toolLc === "bash") {
+    try {
+      const projectDir = payload.cwd ||
+        process.env.ZCODE_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+      if (loadDbHintMode(projectDir) !== DB_HINT_OFF) {
+        const command = payload.tool_input && payload.tool_input.command;
+        if (detectRawDbClient(command)) {
+          process.stdout.write(
+            JSON.stringify({
+              hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: renderDbHintBashLine() },
+            }) + "\n",
+          );
+        }
+      }
+    } catch (err) {
+      process.stderr.write(`[zcode-switchman] db-skill advisory fail-open: ${err}\n`);
     }
   }
 

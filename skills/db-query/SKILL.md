@@ -1,10 +1,11 @@
 ---
 name: db-query
-description: Read-only MySQL/Redis queries via built-in scripts — verify table records, cache keys/fields/TTL, and cross-store consistency. Trigger when the user asks to check or verify database data. If the access address or credentials are unknown, stop and ask the user first; never search for them yourself. Refuse all writes, deletes, DDL, or TTL changes.
+description: Read-only MySQL/Redis queries via built-in scripts — verify table records, cache keys/fields/TTL, and cross-store consistency. Trigger when the user asks to check or verify database data, including "run this SQL", "check the table", or any MySQL/Redis look-up. If the access address or credentials are unknown, stop and ask the user first; never search for them yourself. Refuse all writes, deletes, DDL, or TTL changes.
 compatibility: Node.js 18+, npm, MySQL 5.7.8+/8.0, Redis 5+; dedicated read-only account required for shared/production environments
 ---
 
 <!-- [2026-09-05]-[full English rewrite; top rule: unknown DB access info → stop and ask, never hunt/guess]-[blocks blind or self-sourced connections] -->
+<!-- [2026-09-16]-[broaden the trigger sentence: run-this-SQL / check-the-table phrasings now match too]-[natural trigger rate rises alongside the [DB] hint surfaces] -->
 # Database Query & Verification
 
 Safely query MySQL and Redis via built-in read-only scripts for debugging, data verification, and cache inspection.

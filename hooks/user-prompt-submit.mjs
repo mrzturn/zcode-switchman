@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // [2026-09-16]-[inject the code-comment format iron rule on every turn]-[[COMMENT] now rides alongside [LANG]/[ROUTE] with the same always-on semantics]
+// [2026-09-16]-[inject the hint-only [DB] advisory when the prompt looks database-related]-[DB turns nudge toward the db-query skill without any gate]
 /**
  * UserPromptSubmit hook: per-turn context lines. The [LANG] iron-rule line
  * (configured projects) or the first-run ask directive (unconfigured, not
  * waived), the [COMMENT] code-comment format iron-rule line (src/lib/
  * comment-rule.mjs; on by default, `"commentRule": "off"` per project), plus
  * the [ROUTE] token-economy iron-rule line unless the project opted out via
- * settings.json `"dispatch": "off"` (src/lib/route.mjs). [COMMENT] is a pure
+ * settings.json `"dispatch": "off"` (src/lib/route.mjs), and — only when the
+ * prompt looks database-related — the hint-only [DB] advisory line
+ * (src/lib/dbhint.mjs; `"dbHint": "off"` per project). [COMMENT] is a pure
  * style rule — unlike [ROUTE] it stays injected while the first-run ask is
  * active, because it induces no gated action.
  * When a live estimate is available (rollout-log tail, src/lib/context.mjs;
@@ -27,6 +30,7 @@ import {
 } from "../src/lib/lang.mjs";
 import { DISPATCH_OFF, loadDispatchMode, renderRouteLine } from "../src/lib/route.mjs";
 import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentRuleLine } from "../src/lib/comment-rule.mjs";
+import { DB_HINT_OFF, loadDbHintMode, detectDbIntent, renderDbHintPromptLine } from "../src/lib/dbhint.mjs";
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
 
 function readStdinPayload() {
@@ -64,6 +68,9 @@ try {
     let est = null;
     try { est = estimateContext(sessionId, projectDir); } catch { est = null; } // fail-open → static text
     lines.push(renderRouteLine(est));
+  }
+  if (loadDbHintMode(projectDir) !== DB_HINT_OFF && detectDbIntent(payload.prompt)) {
+    lines.push(renderDbHintPromptLine());
   }
   if (lines.length) {
     process.stdout.write(

@@ -1,5 +1,5 @@
 {
-  "description": "zcode-switchman routing hooks: session banner, language gate, dispatch gate, failure breaker, context write-guard, shell context guard, code-comment format iron rule.",
+  "description": "zcode-switchman routing hooks: session banner, language gate, dispatch gate, failure breaker, context write-guard, shell context guard, code-comment format iron rule, db-skill hint.",
   "hooks": {
     "SessionStart": [
       {
