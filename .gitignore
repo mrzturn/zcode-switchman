@@ -10,3 +10,6 @@ state/
 
 node_modules/
 .DS_Store
+
+# ZCode CLI session artifacts (plans, workflow drafts)
+.zcode/

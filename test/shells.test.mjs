@@ -166,7 +166,7 @@ test("hook smoke: pinned model line survives the auto-provision sync", () => {
   // stale body (older template without the workspace rule) + user-pinned model
   const stale = tpl
     .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"')
-    .replace(/\n6\. 中间产物写入项目根[\s\S]*$/, "\n");
+    .replace(/\n7\. 中间产物写入项目根[\s\S]*$/, "\n");
   fs.writeFileSync(target, stale, "utf8");
 
   const msg = JSON.parse(runHook("session-start.mjs", {}).stdout)
@@ -176,7 +176,7 @@ test("hook smoke: pinned model line survives the auto-provision sync", () => {
 
   const synced = fs.readFileSync(target, "utf8");
   assert.match(synced, /^model: "custom:provider:model-x"$/m, "model line preserved");
-  assert.match(synced, /^6\. 中间产物写入项目根/m, "body refreshed to current template");
+  assert.match(synced, /^7\. 中间产物写入项目根/m, "body refreshed to current template");
 });
 
 test("hook smoke: two failed dispatches trip the breaker", () => {
@@ -193,4 +193,41 @@ test("hook smoke: two failed dispatches trip the breaker", () => {
   assert.ok(Number.isFinite(routing.down_expiry["switchman-hard"]));
   // the breaker now blocks dispatch to that shell
   assert.match(denyReason(runHook("pre-tool-use.mjs", dispatch("switchman-hard", "keep going"))), /breaker/);
+});
+
+// ── v0.17 guard-rule contract: execution guardrails live in the shells, the
+// delegation template is slimmed to role contract → task block → output ──
+
+test("templates carry the built-in execution guardrails: scope discipline, AGENTS.md priority, no secrets", () => {
+  for (const name of Object.keys(SHELLS)) {
+    const text = fs.readFileSync(path.join(PLUGIN_ROOT, "templates", "agents", `${name}.md`), "utf8");
+    assert.match(text, /只做目标块内的事；发现目标外的问题记录到「遗留问题」/, `${name}: scope discipline with 遗留问题`);
+    assert.match(text, /项目级约束与项目 AGENTS\.md 为最高优先级之一/, `${name}: project AGENTS.md + delegation constraints priority`);
+    assert.match(text, /不输出密钥、凭据、配置正文；涉及敏感路径只写路径不写内容/, `${name}: no secrets, sensitive paths as paths only`);
+    assert.match(text, /中间产物|需落盘的产物以文本返回/, `${name}: artifact discipline (.switchman/ for rw, text-back for ro)`);
+  }
+});
+
+test("ro shell templates keep the never-write rule with the read-only Bash allowlist", () => {
+  for (const name of ["switchman-economy", "switchman-review", "switchman-vision"]) {
+    const text = fs.readFileSync(path.join(PLUGIN_ROOT, "templates", "agents", `${name}.md`), "utf8");
+    assert.match(text, /只读壳不写文件：需落盘的产物以文本返回，由委派方写入 `\.switchman\/`。/, `${name}: no-write semantics intact`);
+    assert.match(text, /写入与改状态的命令一律被拒/, `${name}: read-only Bash allowlist intact`);
+  }
+});
+
+test("delegation template is slimmed: no generic rules block, fixed three-section order, shells own the guardrails", () => {
+  const text = fs.readFileSync(path.join(PLUGIN_ROOT, "assets", "delegation-template.md"), "utf8");
+  const body = text.match(/```text\n([\s\S]*?)\n```/)[1];
+  assert.ok(!body.includes("【通用守则】"), "generic rules block removed from the template body");
+  const roleAt = body.indexOf("【角色 contract】");
+  const taskAt = body.indexOf("【任务】");
+  const outAt = body.indexOf("【输出格式】");
+  assert.ok(roleAt > -1 && taskAt > roleAt && outAt > taskAt, "body order: role contract → task block → output format");
+  assert.match(body, /执行守则已内置于各壳系统提示，派发 prompt 不再重复/, "body states the guardrails moved into the shells");
+  for (const ph of ["{{ROLE_CONTRACT}}", "{{GOAL}}", "{{FACTS}}", "{{PATHS}}", "{{ARTIFACTS_DIR}}", "{{ACCEPTANCE}}", "{{OUTPUT_FORMAT}}"]) {
+    assert.ok(body.includes(ph), `placeholder kept: ${ph}`);
+  }
+  assert.match(text, /\| programmer \|/, "role contract table unchanged");
+  assert.match(text, /Order is fixed: role contract → task block → output format/, "usage rules match the slimmed body");
 });

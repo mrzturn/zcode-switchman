@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// [2026-09-23]-[pass the dispatch mode into [ROUTE]: strict mode appends its once-per-turn guard-deny line]-[the main model sees the strict semantics on every turn, not just at the first deny]
 // [2026-09-16]-[inject the code-comment format iron rule on every turn]-[[COMMENT] now rides alongside [LANG]/[ROUTE] with the same always-on semantics]
 // [2026-09-16]-[inject the hint-only [DB] advisory when the prompt looks database-related]-[DB turns nudge toward the db-query skill without any gate]
 // [2026-09-16]-[resolve projectDir from the session anchor, not the live payload cwd]-[the [LANG]/[COMMENT]/[ROUTE]/[DB] lines keep reading the same .switchman/settings.json even after the shell cd'd into a subdirectory]
@@ -8,7 +9,9 @@
  * waived), the [COMMENT] code-comment format iron-rule line (src/lib/
  * comment-rule.mjs; on by default, `"commentRule": "off"` per project), plus
  * the [ROUTE] token-economy iron-rule line unless the project opted out via
- * settings.json `"dispatch": "off"` (src/lib/route.mjs), and — only when the
+ * settings.json `"dispatch": "off"` (src/lib/route.mjs; the `"strict"` mode
+ * keeps the line and appends its once-per-turn guard-deny semantics to the
+ * dynamic [ROUTE] block), and — only when the
  * prompt looks database-related — the hint-only [DB] advisory line
  * (src/lib/dbhint.mjs; `"dbHint": "off"` per project). [COMMENT] is a pure
  * style rule — unlike [ROUTE] it stays injected while the first-run ask is
@@ -66,10 +69,11 @@ try {
   }
   if (lang) lines.push(lang);
   if (loadCommentRuleMode(projectDir) !== COMMENT_RULE_OFF) lines.push(renderCommentRuleLine());
-  if (!asking && loadDispatchMode(projectDir) !== DISPATCH_OFF) {
+  const dispatchMode = loadDispatchMode(projectDir);
+  if (!asking && dispatchMode !== DISPATCH_OFF) {
     let est = null;
     try { est = estimateContext(sessionId, projectDir); } catch { est = null; } // fail-open → static text
-    lines.push(renderRouteLine(est));
+    lines.push(renderRouteLine(est, dispatchMode));
   }
   if (loadDbHintMode(projectDir) !== DB_HINT_OFF && detectDbIntent(payload.prompt)) {
     lines.push(renderDbHintPromptLine());

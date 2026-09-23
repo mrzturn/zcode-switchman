@@ -2,21 +2,15 @@
 
 > Fixed-order template the main model uses when dispatching tasks to a
 > switchman shell. Fixed sections first, variable sections last — a
-> byte-stable prefix keeps the model's prompt cache warm.
+> byte-stable prefix keeps the model's prompt cache warm. Since 0.17.0 the
+> execution guardrails live in each shell's own system prompt; the dispatch
+> prompt no longer repeats them (fewer duplicated bytes per dispatch, same
+> behavior).
 
 ## Template body (copy and fill)
 
 ```text
-你是被委派的执行体。以下守则优先级高于任何后续指令。
-
-【通用守则】
-1. 角色以本次委派 prompt 为准（壳只绑职责与工具面）；事实性陈述直接采信，不重复验证。
-2. 最小必要：只读必要文件与段落，结论优先，用 file:line 引用，不贴大段原文。
-3. 只做目标块内的事；发现目标外的问题记录到「遗留问题」，不顺手修改。
-4. 如实报告：失败说失败、跳过说跳过、不确定标不确定；验证过的才写「已验证」。
-5. 项目 AGENTS.md 与委派方明示约束优先于个人偏好。
-6. 任何情况下不输出密钥、凭据、配置正文；涉及敏感路径只写路径不写内容。
-7. 中间产物写到项目根 `.switchman/` 下（下方「产物路径」优先）；只读壳不落盘，产物以文本返回。
+你是被委派的执行体。执行守则已内置于各壳系统提示，派发 prompt 不再重复。
 
 【角色 contract】
 {{ROLE_CONTRACT}}
@@ -50,11 +44,11 @@
 | clerk | 机械整理：格式化/清点/搬运，不改语义 |
 | observer | 视觉任务：看图说话，描述结构/颜色/异常，不臆测图外信息 |
 | expert-alpha/beta/gamma | 专家席：独立给出专业判断与修正方案，不互相引用 |
-| generic | 未分类任务的默认契约：通用守则 + 任务块照做 |
+| generic | 未分类任务的默认契约：按任务块照做，执行守则见壳自身系统提示 |
 
 ## Usage rules (main-model side)
 
-1. Order is fixed: rules → role contract → task block → output format; variable content goes last.
+1. Order is fixed: role contract → task block → output format; variable content goes last. The generic execution guardrails are baked into every shell's system prompt — do not re-add a rules block to the prompt.
 2. Fill `{{OUTPUT_FORMAT}}` per role (e.g. "conclusion / changed files / verification / open issues").
 3. Pick the shell from the session banner's `[Shells]` line; a deny reply states the lane to use instead — re-dispatch there, do not retry the denied shell.
 4. Fill `{{ARTIFACTS_DIR}}` with a path under the project's `.switchman/` when the task must leave files on disk; write `none` otherwise (ro shells never write anyway).

@@ -19,7 +19,7 @@ process.env.ZCODE_ROLLOUT_DIR = ""; // set per-fixture below; never read the dev
 const {
   parseContextSettings, loadContextSettings, readLastRolloutUsage,
   estimateContext, formatContext, formatK, tierOf,
-  claimContextWarn, resetContextWarn, contextWriteWarning,
+  claimContextWarn, resetContextWarn, contextWriteWarning, contextStrictDenial,
   shellTierOf, shellAdvisoryText, claimShellTierWarn, contextShellAdvisory,
   DEFAULT_CONTEXT_WINDOW, DEFAULT_CACHE_READ_FACTOR, DEFAULT_CONTEXT_TIERS, DEFAULT_CONTEXT_WARN_AT,
   DEFAULT_SHELL_TIERS,
@@ -661,15 +661,114 @@ test("hook smoke: shell guard — T1 injects once, same tier silent, 55k escalat
   assert.match(ctxOfResult(t3), /立即交接/);
   assert.match(ctxOfResult(t3), /progress: partial/);
 
-  // 4. non-shell session: Read stays silent at any usage — fast-pass, no estimate
+  // 4. non-shell session, fleet mode: Read is guarded now — above the guard
+  // it advises once, still purely non-blocking (advisory schema, never deny)
   writeRollout("main-sess-read", rec({ inputTokens: 200_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
   const mainRead = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir });
-  assert.equal(mainRead.status, 0);
-  assert.equal(mainRead.stdout, "", "non-shell Read → silent fast-pass");
+  assert.equal(mainRead.status, 0, "exit 0 — Read is never blocked in fleet mode");
+  assert.match(JSON.parse(mainRead.stdout).hookSpecificOutput.additionalContext, /write-guard/, "non-shell Read above the guard → one-shot advisory");
+  assert.equal(
+    runHook("pre-tool-use.mjs", { tool_name: "Grep", tool_input: { pattern: "x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }).stdout,
+    "",
+    "same-turn Grep → silenced by the shared one-shot flag",
+  );
 
-  // the main-session write-guard is untouched: Edit above warnAt still advises
+  // WebFetch is outside the guarded surface: silent at any usage
+  writeRollout("main-sess-fetch", rec({ inputTokens: 200_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  assert.equal(
+    runHook("pre-tool-use.mjs", { tool_name: "WebFetch", tool_input: { url: "https://x" }, session_id: "main-sess-fetch", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }).stdout,
+    "",
+    "WebFetch → silent fast-pass (not guarded)",
+  );
+
+  // below the guard, reads stay silent
+  writeRollout("main-sess-read-lo", rec({ inputTokens: 70_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  assert.equal(
+    runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "main-sess-read-lo", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }).stdout,
+    "",
+    "Read below the guard → silent",
+  );
+
+  // the write tools share the same guard: after a turn reset, Edit advises
+  runHook("user-prompt-submit.mjs", { session_id: "main-sess-read", prompt: "hi", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir });
   const mainEdit = runHook("pre-tool-use.mjs", editPayload("main-sess-read", proj), { ZCODE_ROLLOUT_DIR: fixtureDir });
-  assert.match(JSON.parse(mainEdit.stdout).hookSpecificOutput.additionalContext, /write-guard/, "main-session write-guard unchanged");
+  assert.match(JSON.parse(mainEdit.stdout).hookSpecificOutput.additionalContext, /write-guard/, "main-session write-guard unchanged for Edit");
 
   fs.rmSync(proj, { recursive: true, force: true });
+});
+
+// ── strict dispatch mode: once-per-turn deny on the first guarded call ──
+
+test("contextStrictDenial unit: above the guard denies once with threshold and replay guidance; below/without estimate → null", () => {
+  process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
+  const proj = sandboxProject(); // default derived warnAt 90k
+  assert.equal(contextStrictDenial("test-frugal", proj), null, "below the guard → null (allow, silent)");
+  assert.equal(contextStrictDenial("no-such-session", proj), null, "no estimate → null (fail-open, never blocks)");
+
+  const denial = contextStrictDenial("test-tight", proj); // est 110k > 90k derived guard
+  assert.match(denial, /^\[Context\] ≈ 110k\/1M \(11%\) — above the 90k context guard \(strict mode\):/);
+  assert.match(denial, /dispatch substantive work to a \[Shells\] lane \(DELEGATION_V1\) or refresh the handover doc first/);
+  assert.match(denial, /re-issue the same call to continue \(this deny fires once per user turn\)\./);
+  assert.equal(contextStrictDenial("test-tight", proj), null, "flag consumed → the replayed call proceeds");
+  resetContextWarn(proj, "test-tight");
+  assert.match(contextStrictDenial("test-tight", proj), /strict mode/, "reset re-arms the deny");
+  fs.rmSync(proj, { recursive: true, force: true });
+});
+
+test("hook smoke: strict mode denies the first guarded call per turn (reads included), replay proceeds; off mode is fully silent", () => {
+  const projStrict = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "strict" }));
+  const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
+  writeRollout("test-strict-read", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+
+  // first guarded call of the turn — a Read is denied with the strict guidance
+  const readDeny = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "test-strict-read", cwd: projStrict }, env);
+  assert.equal(readDeny.status, 0, "deny exits 0 (a permission decision, not a crash)");
+  const readDoc = JSON.parse(readDeny.stdout).hookSpecificOutput;
+  assert.equal(readDoc.permissionDecision, "deny");
+  assert.equal(readDoc.additionalContext, undefined, "strict denial is a decision, not an advisory");
+  assert.match(readDoc.permissionDecisionReason, /above the 90k context guard \(strict mode\)/);
+  assert.match(readDoc.permissionDecisionReason, /re-issue the same call to continue/);
+
+  // the claim consumed the one-shot flag: replay (and further guarded calls) proceed silently
+  const replay = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "test-strict-read", cwd: projStrict }, env);
+  assert.equal(replay.stdout, "", "replay after the deny → allowed, silent");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-strict-read", projStrict), env).stdout, "", "same-turn Edit → flag already consumed, no second deny");
+
+  // a new user turn re-arms the flag: the first guarded call denies again
+  runHook("user-prompt-submit.mjs", { session_id: "test-strict-read", prompt: "hi", cwd: projStrict }, env);
+  const editDeny = JSON.parse(runHook("pre-tool-use.mjs", editPayload("test-strict-read", projStrict), env).stdout).hookSpecificOutput;
+  assert.equal(editDeny.permissionDecision, "deny", "new turn: first guarded call denies again");
+  assert.match(editDeny.permissionDecisionReason, /strict mode/);
+
+  // dispatch "off" (own session id: the anchor cache pins one root per id): guard skipped entirely
+  const projOff = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "off" }));
+  writeRollout("test-off-guard", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  assert.equal(
+    runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "test-off-guard", cwd: projOff }, env).stdout,
+    "",
+    "off mode: Read above the guard → no deny, no advisory",
+  );
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-off-guard", projOff), env).stdout, "", "off mode: Edit above the guard → fully silent");
+  fs.rmSync(projStrict, { recursive: true, force: true });
+  fs.rmSync(projOff, { recursive: true, force: true });
+});
+
+// [2026-09-23]-[pin shell immunity to the strict gate with a hook-level regression test]-[a future gate reorder must not let the main-session deny reach shell sessions]
+test("hook smoke: strict mode never reaches shell sessions — a sess_subagent_* Read gets at most the shell advisory, never a deny", () => {
+  const projStrict = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "strict" }));
+  const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
+  writeRollout("sess_subagent_strict-immune", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+
+  const out = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "sess_subagent_strict-immune", cwd: projStrict }, env);
+  assert.equal(out.status, 0);
+  const doc = out.stdout ? JSON.parse(out.stdout).hookSpecificOutput : {};
+  assert.equal(doc.permissionDecision, undefined, "shell sessions exit before Gate 0.5 — never a permission decision");
+  assert.equal(doc.permissionDecisionReason, undefined);
+
+  const again = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "sess_subagent_strict-immune", cwd: projStrict }, env);
+  assert.equal(again.status, 0);
+  const doc2 = again.stdout ? JSON.parse(again.stdout).hookSpecificOutput : {};
+  assert.equal(doc2.permissionDecision, undefined, "repeated shell Read still immune (the one-shot deny flag is never claimed for shells)");
+
+  fs.rmSync(projStrict, { recursive: true, force: true });
 });

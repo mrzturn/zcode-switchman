@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// [2026-09-23]-[context guard covers read-class tools too and gains a strict deny mode]-[Read/Glob/Grep join the guarded surface; dispatch "strict" denies the first guarded call above the threshold once per user turn, "off" skips the guard entirely]
 // [2026-09-16]-[add gate 0.55: hint-only DB advisory when a Bash command invokes a raw database client]-[raw mysql/redis-cli calls get nudged toward the db-query skill, never denied]
 // [2026-09-16]-[anchor every projectDir on the session root instead of the live payload cwd]-[a `cd` into a subdirectory can no longer make .switchman/settings.json "disappear" and re-close the lang gate]
 /**
@@ -31,11 +32,17 @@
  *    shells and unknown capability pass untouched (fail-open). Runs before
  *    the advisory so a deny outputs the deny alone. See src/lib/robash.mjs
  *    (judgeRoBashCommand, shellCapabilityFromRollout).
- * 0.5 context write-guard (Write|Edit|MultiEdit|NotebookEdit, non-shell
- *    sessions) — when the live estimate exceeds contextWarnAt, inject a
- *    one-shot-per-user-turn advisory via hookSpecificOutput.additionalContext.
- *    Strictly non-blocking: never a permission decision, never deny; silent
- *    when no estimate. See src/lib/context.mjs (contextWriteWarning).
+ * 0.5 context guard (Write|Edit|MultiEdit|NotebookEdit|Read|Glob|Grep,
+ *    non-shell sessions) — when the live estimate exceeds contextWarnAt:
+ *    dispatch mode "fleet" (default) injects a one-shot-per-user-turn
+ *    advisory via hookSpecificOutput.additionalContext (strictly
+ *    non-blocking, never a permission decision); dispatch mode "strict"
+ *    denies the first guarded call of the turn instead — re-issuing the same
+ *    call proceeds because the denial consumes the one-shot flag; dispatch
+ *    mode "off" skips the guard entirely. Silent when no estimate
+ *    (fail-open: a missing estimate never blocks work). See
+ *    src/lib/context.mjs (contextWriteWarning, contextStrictDenial) and
+ *    src/lib/route.mjs (DISPATCH_STRICT).
  * 0.55 db-skill advisory (Bash, non-shell sessions) — when the command
  *    invokes a raw database client (mysql / mysqldump / redis-cli …), inject
  *    a hint-only nudge toward the zcode-switchman:db-query skill via
@@ -71,16 +78,16 @@ import {
   isLangWriteAllowed,
 } from "../src/lib/lang.mjs";
 import { resolveProjectRoot, isLangGateOpen, markLangGateOpen } from "../src/lib/project.mjs";
-import { DISPATCH_OFF, loadDispatchMode } from "../src/lib/route.mjs";
-import { contextWriteWarning, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
+import { DISPATCH_OFF, DISPATCH_STRICT, loadDispatchMode } from "../src/lib/route.mjs";
+import { contextWriteWarning, contextStrictDenial, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
 import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
 import { DB_HINT_OFF, loadDbHintMode, detectRawDbClient, renderDbHintBashLine } from "../src/lib/dbhint.mjs";
 
-/** Tools that carry the context write-guard advisory */
-const CONTEXT_WRITE_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit"]);
+/** Tools that carry the context guard (advisory in fleet mode, once-per-turn deny in strict mode) */
+const CONTEXT_GUARD_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit", "read", "glob", "grep"]);
 
-/** Read-class tools: only shell sessions have business here; non-shell sessions fast-pass */
-const CONTEXT_READ_TOOLS = new Set(["read", "glob", "grep", "webfetch", "websearch"]);
+/** Read-class tools outside the guard: only shell sessions have business here; non-shell sessions fast-pass */
+const CONTEXT_READ_TOOLS = new Set(["webfetch", "websearch"]);
 
 function deny(reason) {
   process.stdout.write(
@@ -180,24 +187,39 @@ try {
     process.exit(0);
   }
 
-  // Non-shell read-class calls: silent fast-pass before any estimation — the
-  // matcher grew to reads only so shells can be guarded; mains pay a string
-  // compare and nothing else.
+  // Non-shell WebFetch/WebSearch: silent fast-pass before any estimation —
+  // never guarded; mains pay a string compare and nothing else.
   if (CONTEXT_READ_TOOLS.has(toolLc)) process.exit(0);
 
-  // Gate 0.5: context write-guard advisory (write-class tools, non-blocking —
-  // additionalContext only, never a permission decision; silent without an estimate)
-  if (CONTEXT_WRITE_TOOLS.has(toolLc)) {
+  // Gate 0.5: context guard (write-class tools + Read/Glob/Grep, non-shell
+  // sessions). Mode decides the response: "fleet" → one-shot advisory
+  // (additionalContext only, never a permission decision); "strict" → the
+  // first guarded call above the threshold is denied once per user turn (the
+  // claim consumes the flag, so re-issuing the call proceeds); "off" → the
+  // guard is skipped entirely. Silent without an estimate — fail-open, the
+  // guard never blocks work it cannot measure.
+  if (CONTEXT_GUARD_TOOLS.has(toolLc)) {
     try {
       const projectDir = projectRoot();
-      const warn = contextWriteWarning(sessionId, projectDir);
-      if (warn) {
-        process.stdout.write(
-          JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: warn } }) + "\n",
-        );
+      const mode = loadDispatchMode(projectDir);
+      if (mode !== DISPATCH_OFF) {
+        if (mode === DISPATCH_STRICT) {
+          const denial = contextStrictDenial(sessionId, projectDir);
+          if (denial) {
+            deny(denial);
+            process.exit(0);
+          }
+        } else {
+          const warn = contextWriteWarning(sessionId, projectDir);
+          if (warn) {
+            process.stdout.write(
+              JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: warn } }) + "\n",
+            );
+          }
+        }
       }
     } catch (err) {
-      process.stderr.write(`[zcode-switchman] context write-guard fail-open: ${err}\n`);
+      process.stderr.write(`[zcode-switchman] context guard fail-open: ${err}\n`);
     }
   }
 

@@ -20,11 +20,14 @@
  *                             the free/frugal/tight/compact tiers, default
  *                             [50_000, 90_000, 130_000] (tiers are absolute
  *                             k, not percentages)
- *   contextWarnAt: number   → PreToolUse write-guard threshold; default
+ *   contextWarnAt: number   → PreToolUse context-guard threshold; default
  *                             derives from the effective tiers as the start of
  *                             the tier before compact (tiers[1], 90k with the
  *                             default tiers), an explicit positive value
- *                             overrides (one advisory per user turn above it)
+ *                             overrides (one advisory per user turn above it;
+ *                             in strict dispatch mode the first guarded call
+ *                             above it is denied once per user turn instead —
+ *                             contextStrictDenial)
  *   contextShellTiers: [a,b,c] → three ascending absolute-token boundaries
  *                             for the sub-agent context guard (shell sessions,
  *                             sess_subagent_* ids), default [30_000, 50_000,
@@ -351,6 +354,27 @@ export function contextWriteWarning(sessionId, projectDir) {
     if (!est || !(est.est > est.warnAt)) return null;
     if (!claimContextWarn(projectDir, sessionId)) return null;
     return `[Context] ≈ ${formatContext(est.est, est.window)} — above the ${formatK(est.warnAt)} write-guard: substantive work should dispatch to [Shells] shells (DELEGATION_V1); refresh the handover doc first.`;
+  } catch {
+    return null;
+  }
+}
+
+// [2026-09-23]-[strict dispatch mode denies the first guarded call above the guard, once per user turn]-[shares the threshold and one-shot flag with the advisory; replay passes; estimate loss stays fail-open silent]
+/**
+ * PreToolUse strict-mode denial (dispatch mode "strict"): same threshold and
+ * same one-shot-per-user-turn flag as contextWriteWarning, but the first
+ * guarded call above contextWarnAt is denied instead of advised. Claiming
+ * the flag consumes it, so re-issuing the same call proceeds. Returns the
+ * deny reason text, or null to allow silently (feature off, no estimate, at
+ * or below the guard, or the flag was already consumed this turn). Never
+ * throws — a missing estimate must never block work.
+ */
+export function contextStrictDenial(sessionId, projectDir) {
+  try {
+    const est = estimateContext(sessionId, projectDir);
+    if (!est || !(est.est > est.warnAt)) return null;
+    if (!claimContextWarn(projectDir, sessionId)) return null;
+    return `[Context] ≈ ${formatContext(est.est, est.window)} — above the ${formatK(est.warnAt)} context guard (strict mode): dispatch substantive work to a [Shells] lane (DELEGATION_V1) or refresh the handover doc first; re-issue the same call to continue (this deny fires once per user turn).`;
   } catch {
     return null;
   }

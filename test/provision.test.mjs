@@ -51,7 +51,7 @@ test("provision: user-pinned model and thoughtLevel lines survive the sync verba
   // simulate an older plugin body + a user-pinned model and thoughtLevel
   const stale = tpl
     .replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"\nthoughtLevel: high')
-    .replace(/\n6\. 中间产物写入项目根[\s\S]*$/, "\n");
+    .replace(/\n7\. 中间产物写入项目根[\s\S]*$/, "\n");
   fs.writeFileSync(target, stale, "utf8");
 
   const report = provisionShells({ pluginRoot: PLUGIN_ROOT, agentsDir: dir });
@@ -60,7 +60,7 @@ test("provision: user-pinned model and thoughtLevel lines survive the sync verba
   const synced = fs.readFileSync(target, "utf8");
   assert.match(synced, /^model: "custom:provider:model-x"$/m, "model line survives");
   assert.match(synced, /^thoughtLevel: high$/m, "user-set thoughtLevel survives — never dropped by a sync");
-  assert.match(synced, /^6\. 中间产物写入项目根/m, "body refreshed from current template");
+  assert.match(synced, /^7\. 中间产物写入项目根/m, "body refreshed from current template");
   assert.equal(
     synced,
     tpl.replace(/^model:[^\n]*$/m, 'model: "custom:provider:model-x"\nthoughtLevel: high'),

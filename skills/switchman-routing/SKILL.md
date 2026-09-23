@@ -1,6 +1,6 @@
 ---
 name: switchman-routing
-description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchman. MANDATORY BEFORE starting any substantive task — implementation, refactoring, multi-file reading or analysis, code-changing debugging, document writing, review, or image work — to pick a lane and dispatch instead of working on the main thread. Also use when composing a dispatch, when a dispatch was denied by the gate, or when the user asks about routing. Hands-on main-thread work is only for trivia: one-line fixes, reading 1-2 files at known paths, .switchman bookkeeping, or when the user explicitly says to do it yourself. Before acting, state in one sentence whether the work is done hands-on or dispatched and why (token economy).
+description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchman. MANDATORY BEFORE starting any substantive task — implementation, bugfix, debugging, refactoring, multi-file reading or analysis, document writing, review, or image work — to pick a lane and dispatch instead of working on the main thread. Also use for code search, file lookup, repo exploration, or retrieval (dispatch to the economy lane), for implementation / bugfix / debugging work (main or hard), when composing a dispatch, when a dispatch was denied by the gate, or when the user asks about routing. Hands-on main-thread work is only for trivia: one-line fixes, reading 1-2 files at known paths, .switchman bookkeeping, or when the user explicitly says to do it yourself. Before acting, state in one sentence whether the work is done hands-on or dispatched and why (token economy).
 ---
 
 # Fixed-fleet dispatch protocol
@@ -34,7 +34,10 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
     carrying a long context through more hands-on work.
 - When in doubt, dispatch. The per-turn [ROUTE] line and the banner's [Rule]
   line enforce the same rule; a project opts out with `"dispatch": "off"` at
-  the top level of `.switchman/settings.json` (both lines then disappear).
+  the top level of `.switchman/settings.json` (both lines then disappear), or
+  sets it to `"strict"` to keep them and arm the context guard: above the
+  guard threshold the first guarded hands-on tool call per user turn is
+  denied once (with lane guidance); re-issuing the call proceeds.
 
 ## Model
 
@@ -73,6 +76,15 @@ description: Fixed six-lane sub-agent fleet dispatch protocol for zcode-switchma
 The effort column is each lane's *suggested* effort — a rough hint for how
 deep tasks in that lane go, nothing more.
 
+### Typical dispatch scenarios
+
+- economy ← code search / file inventory / summarization
+- main ← implementation or fixes spanning more than 2 files (give an artifact path)
+- hard ← architecture and design work, gnarly problems (returns a plan doc)
+- review ← second pair of eyes after a change
+- mechanical ← bulk reformat / move / data chores
+- vision ← screenshots and image understanding
+
 - Reviews are plain second-opinion dispatches: the review shell runs whatever
   model the user configured in its frontmatter; the gate never inspects models.
 
@@ -97,8 +109,10 @@ deep tasks in that lane go, nothing more.
 1. Pick the lane from the task's cognitive strength (light triage / mechanical
    chore / normal implementation / deep design / vision / review).
 2. Compose the dispatch prompt with the fixed-order DELEGATION_V1 template
-   (see `assets/delegation-template.md` in the plugin root); the role
-   contract and task go in the prompt — the shell itself is pinned by its
+   (see `assets/delegation-template.md` in the plugin root): role contract →
+   task block → output format. The execution guardrails are built into every
+   shell's own system prompt — the dispatch prompt no longer repeats them.
+   The shell itself is pinned by its
    name in `subagent_type`, and its ro/image tool whitelist is enforced by
    the platform. ro shells additionally carry Bash behind a read-only
    allowlist (git view subcommands, rg/grep/cat/ls-style inspection; per
