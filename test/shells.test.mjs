@@ -94,11 +94,22 @@ test("hook smoke: shell dispatches pass with no ROUTE_META line at all", () => {
   assert.equal(runHook("pre-tool-use.mjs", dispatch("switchman-review", "review this")).stdout, "");
 });
 
-test("hook smoke: foreign agents pass silently", () => {
+// [2026-09-23]-[foreign-agent gate: built-in generalists are no longer fully silent]-[Explore/general-purpose dispatches get the nudge advisory by default; only non-target foreign agents pass silently now]
+test("hook smoke: foreign agents outside the target set pass silently; built-in generalists get the nudge", () => {
+  // dedicated built-ins and foreign fleets stay out of scope: allow, silent
   assert.equal(
-    runHook("pre-tool-use.mjs", dispatch("general-purpose", "anything, no meta")).stdout,
+    runHook("pre-tool-use.mjs", dispatch("visual-judge", "anything, no meta")).stdout,
     "",
   );
+  // the foreign-agent gate's target set (default "nudge"): a non-blocking
+  // advisory joins the dispatch, never a permission decision
+  const nudge = JSON.parse(
+    runHook("pre-tool-use.mjs", dispatch("general-purpose", "anything, no meta")).stdout,
+  ).hookSpecificOutput;
+  assert.equal(nudge.hookEventName, "PreToolUse");
+  assert.match(nudge.additionalContext, /^\[Dispatch\]/);
+  assert.ok(nudge.additionalContext.includes("DELEGATION_V1"));
+  assert.ok(!("permissionDecision" in nudge), "hint-only: never a permission decision");
 });
 
 test("hook smoke: breaker-down shell is denied", () => {

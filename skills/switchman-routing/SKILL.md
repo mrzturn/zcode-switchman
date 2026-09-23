@@ -131,6 +131,11 @@ deep tasks in that lane go, nothing more.
   heals.
 - While a shell is down: pick a different lane or tell the user; never retry
   a breaker-down shell, never silently degrade.
+- A denied foreign dispatch (the strict foreign-agent gate on built-in
+  `Explore` / `general-purpose`) means the same thing: the reason names the
+  equivalent switchman lane — re-dispatch there via DELEGATION_V1, or
+  re-issue the identical call to proceed (that deny fires once per user
+  turn).
 
 ## Handoff relay (shell context guard)
 

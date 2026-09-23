@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+// [2026-09-23]-[foreign-agent gate intercepts Explore/general-purpose dispatches at dispatch time]-[the prompt layer topped out — the model cited [ROUTE] yet still sent exploration to built-in Explore, so "nudge" advises every such dispatch and "strict" denies the first one per user turn]
 // [2026-09-23]-[context guard covers read-class tools too and gains a strict deny mode]-[Read/Glob/Grep join the guarded surface; dispatch "strict" denies the first guarded call above the threshold once per user turn, "off" skips the guard entirely]
 // [2026-09-16]-[add gate 0.55: hint-only DB advisory when a Bash command invokes a raw database client]-[raw mysql/redis-cli calls get nudged toward the db-query skill, never denied]
 // [2026-09-16]-[anchor every projectDir on the session root instead of the live payload cwd]-[a `cd` into a subdirectory can no longer make .switchman/settings.json "disappear" and re-close the lang gate]
 /**
  * PreToolUse hook (matcher: Agent|Task|Write|Edit|MultiEdit|NotebookEdit|Bash|
  * Read|Glob|Grep|WebFetch|WebSearch).
- * Two gate layers plus two advisories plus the shell-session ro-bash gate:
+ * Gate layers, advisories and the shell-session ro-bash gate below:
  *
  * 0. lang gate (all matched tools) — while the project language preference is
  *    unconfigured (.switchman/settings.json absent, AGENTS.md marker absent,
@@ -49,10 +50,20 @@
  *    hookSpecificOutput.additionalContext. Strictly non-blocking: never a
  *    permission decision. Off via settings.json `"dbHint": "off"`. See
  *    src/lib/dbhint.mjs.
- * 1. dispatch gate (Agent|Task only) — one gate per shell dispatch:
- *   a. breaker — windowed failure circuit, auto-heals (~10 min)
- * Dispatches to non-switchman agents (built-ins etc.) are out of scope: allow.
- * A project opted out via settings.json `"dispatch": "off"` stands the gate
+ * 1. dispatch gates (Agent|Task only) — per dispatch decision:
+ *   a. breaker (switchman shells) — windowed failure circuit, auto-heals
+ *      (~10 min)
+ *   b. foreign-agent gate (subagent_type exactly Explore / general-purpose,
+ *      case-insensitive) — the dispatch-time steer the [ROUTE] prompt lines
+ *      could not enforce: "nudge" (default) injects a one-line non-blocking
+ *      advisory naming the equivalent lane on every such dispatch; "strict"
+ *      denies the first one of each user turn once (re-issuing the call
+ *      proceeds; the rest of the turn passes silently); "off" is fully
+ *      silent. Dormant while the dispatch mode is "off". See
+ *      src/lib/foreign-agent.mjs.
+ * Every other non-switchman agent (dedicated built-ins like
+ * documents:visual-judge, foreign fleets) is out of scope: allow.
+ * A project opted out via settings.json `"dispatch": "off"` stands the gates
  * down entirely (same switch that hides the [Rule]/[ROUTE] prompt lines).
  *
  * The former ROUTE_META hard gate and ro/modality semantics gates are gone:
@@ -82,6 +93,14 @@ import { DISPATCH_OFF, DISPATCH_STRICT, loadDispatchMode } from "../src/lib/rout
 import { contextWriteWarning, contextStrictDenial, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
 import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
 import { DB_HINT_OFF, loadDbHintMode, detectRawDbClient, renderDbHintBashLine } from "../src/lib/dbhint.mjs";
+import {
+  FOREIGN_AGENT_NUDGE,
+  FOREIGN_AGENT_STRICT,
+  loadForeignAgentMode,
+  foreignTargetOf,
+  foreignStrictDenial,
+  renderForeignNudgeLine,
+} from "../src/lib/foreign-agent.mjs";
 
 /** Tools that carry the context guard (advisory in fleet mode, once-per-turn deny in strict mode) */
 const CONTEXT_GUARD_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit", "read", "glob", "grep"]);
@@ -249,7 +268,33 @@ try {
 
   const shell = shellInfo(agent);
   if (!shell) {
-    // Built-in agents (general-purpose etc.) and foreign fleets are not governed.
+    // Foreign-agent gate: built-in generalists named Explore / general-purpose
+    // get steered back to the fleet (mode from settings.json "foreignAgent");
+    // every other non-switchman agent (dedicated built-ins like
+    // documents:visual-judge, foreign fleets) stays out of scope: allow.
+    // Dispatch mode "off" → the gate sleeps with the rest of the fleet gates.
+    try {
+      const projectDir = projectRoot();
+      if (loadDispatchMode(projectDir) !== DISPATCH_OFF && foreignTargetOf(agent)) {
+        const faMode = loadForeignAgentMode(projectDir);
+        if (faMode === FOREIGN_AGENT_STRICT) {
+          const denial = foreignStrictDenial(projectDir, sessionId, agent);
+          if (denial) {
+            deny(denial); // a deny emits the deny alone
+            process.exit(0);
+          }
+        } else if (faMode === FOREIGN_AGENT_NUDGE) {
+          const line = renderForeignNudgeLine(agent);
+          if (line) {
+            process.stdout.write(
+              JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: line } }) + "\n",
+            );
+          }
+        } // "off" → fully silent
+      }
+    } catch (err) {
+      process.stderr.write(`[zcode-switchman] foreign-agent gate fail-open: ${err}\n`);
+    }
     process.exit(0);
   }
 

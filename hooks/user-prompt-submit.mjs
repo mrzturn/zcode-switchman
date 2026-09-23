@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// [2026-09-23]-[reset the foreign-agent strict-deny flag on every user turn]-[strict foreign dispatches deny once per turn again — the flag is a dedicated file, independent of the context guard's]
 // [2026-09-23]-[pass the dispatch mode into [ROUTE]: strict mode appends its once-per-turn guard-deny line]-[the main model sees the strict semantics on every turn, not just at the first deny]
 // [2026-09-16]-[inject the code-comment format iron rule on every turn]-[[COMMENT] now rides alongside [LANG]/[ROUTE] with the same always-on semantics]
 // [2026-09-16]-[inject the hint-only [DB] advisory when the prompt looks database-related]-[DB turns nudge toward the db-query skill without any gate]
@@ -36,6 +37,7 @@ import { DISPATCH_OFF, loadDispatchMode, renderRouteLine } from "../src/lib/rout
 import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentRuleLine } from "../src/lib/comment-rule.mjs";
 import { DB_HINT_OFF, loadDbHintMode, detectDbIntent, renderDbHintPromptLine } from "../src/lib/dbhint.mjs";
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
+import { resetForeignDeny } from "../src/lib/foreign-agent.mjs";
 import { resolveProjectRoot, isLangGateOpen } from "../src/lib/project.mjs";
 
 function readStdinPayload() {
@@ -54,7 +56,9 @@ try {
   const projectDir = resolveProjectRoot({ cwd: payload.cwd, sessionId });
 
   // new user turn → re-arm the PreToolUse write-guard (one advisory per turn)
+  // and the foreign-agent strict deny (one deny per turn; independent flag)
   try { resetContextWarn(projectDir, sessionId); } catch { /* fail-open */ }
+  try { resetForeignDeny(projectDir, sessionId); } catch { /* fail-open */ }
 
   const lines = [];
   let lang = null;
