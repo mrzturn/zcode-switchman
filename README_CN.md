@@ -91,8 +91,8 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 
 ## 文档
 
-- 派发协议（六档怎么挑、DELEGATION_V1 怎么写）：[skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
-- 委派 prompt 模板（DELEGATION_V1）：[assets/delegation-template.md](./assets/delegation-template.md)
+- 派发协议（六档怎么挑、DELEGATION_V1 怎么写，模板正文内联在技能里）：[skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
+- 委派 prompt 模板（人类参考副本；模型读上面内联的那份，测试保证两份字节一致）：[assets/delegation-template.md](./assets/delegation-template.md)
 - 移植设计文档（平台差异、取舍、目标结构）：[docs/porting-handover.md](./docs/porting-handover.md)
 
 ## 仓库结构与契约

@@ -242,3 +242,27 @@ test("delegation template is slimmed: no generic rules block, fixed three-sectio
   assert.match(text, /\| programmer \|/, "role contract table unchanged");
   assert.match(text, /Order is fixed: role contract → task block → output format/, "usage rules match the slimmed body");
 });
+
+// ── v0.17.2 self-containment contract: the skill inlines the template body,
+// so composing a dispatch never reads a file outside the skill dir ──
+
+test("routing skill inlines the DELEGATION_V1 body byte-identical to the assets copy", () => {
+  const skill = fs.readFileSync(path.join(PLUGIN_ROOT, "skills", "switchman-routing", "SKILL.md"), "utf8");
+  const assets = fs.readFileSync(path.join(PLUGIN_ROOT, "assets", "delegation-template.md"), "utf8");
+  const skillBody = skill.match(/```text\n([\s\S]*?)\n```/);
+  const assetsBody = assets.match(/```text\n([\s\S]*?)\n```/);
+  assert.ok(skillBody, "SKILL.md must inline the template body in a ```text fence");
+  assert.ok(assetsBody, "assets/delegation-template.md must keep its template body");
+  assert.equal(skillBody[1], assetsBody[1], "the two template bodies must stay byte-identical — edit both together");
+});
+
+test("routing skill is self-contained: role table present, no out-of-skill template reference", () => {
+  const skill = fs.readFileSync(path.join(PLUGIN_ROOT, "skills", "switchman-routing", "SKILL.md"), "utf8");
+  for (const role of ["planner", "reviewer", "programmer", "tester", "uiux", "data-analyst", "ops", "scouter", "clerk", "observer", "expert-alpha/beta/gamma", "generic"]) {
+    assert.ok(skill.includes(`| ${role} `), `role contract row present: ${role}`);
+  }
+  // The model only ever knows the skill's own path; a relative reference to
+  // the plugin root is unresolvable and produced file-not-found reads.
+  assert.ok(!skill.includes("delegation-template.md"), "SKILL.md must not point at the assets copy by path");
+  assert.ok(!/see `assets\//.test(skill), "no other see-assets references either");
+});

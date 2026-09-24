@@ -109,10 +109,10 @@ deep tasks in that lane go, nothing more.
 1. Pick the lane from the task's cognitive strength (light triage / mechanical
    chore / normal implementation / deep design / vision / review).
 2. Compose the dispatch prompt with the fixed-order DELEGATION_V1 template
-   (see `assets/delegation-template.md` in the plugin root): role contract →
-   task block → output format. The execution guardrails are built into every
-   shell's own system prompt — the dispatch prompt no longer repeats them.
-   The shell itself is pinned by its
+   below — it is inlined here in full, so composing a dispatch never
+   requires reading any other file. The execution guardrails are built into
+   every shell's own system prompt — the dispatch prompt no longer repeats
+   them. The shell itself is pinned by its
    name in `subagent_type`, and its ro/image tool whitelist is enforced by
    the platform. ro shells additionally carry Bash behind a read-only
    allowlist (git view subcommands, rg/grep/cat/ls-style inspection; per
@@ -122,6 +122,49 @@ deep tasks in that lane go, nothing more.
 3. If a dispatch is denied (failure breaker or language gate), the deny
    reason states why and which lane to use instead — re-dispatch there
    directly. Do not retry the denied shell.
+
+### DELEGATION_V1 template (copy and fill; fixed order)
+
+<!-- [2026-09-24]-[inline the full template body instead of pointing to a file outside the skill dir]-[the model cannot resolve "plugin root" from the skill's own path, so the old out-of-skill reference produced a guaranteed file-not-found Read before every careful dispatch] -->
+
+```text
+你是被委派的执行体。执行守则已内置于各壳系统提示，派发 prompt 不再重复。
+
+【角色 contract】
+{{ROLE_CONTRACT}}
+
+【任务】
+目标：{{GOAL}}
+已知事实：{{FACTS}}
+相关路径：{{PATHS}}
+产物路径：{{ARTIFACTS_DIR}}（无落盘需求写 none）
+完成标准：{{ACCEPTANCE}}
+
+【输出格式】
+{{OUTPUT_FORMAT}}
+```
+
+Fill `{{ROLE_CONTRACT}}` with a one-line role contract from the table below;
+`{{OUTPUT_FORMAT}}` per role (e.g. "conclusion / changed files / verification
+/ open issues"); `{{ARTIFACTS_DIR}}` with a path under the project's
+`.switchman/` when the task must leave files on disk, `none` otherwise (ro
+shells never write anyway). Variable content goes last so the fixed prefix
+keeps the model's prompt cache warm.
+
+| role | contract |
+|---|---|
+| planner | 只设计不实现：产出方案/边界/完成标准/风险，不改代码；给出 file:line 证据 |
+| reviewer | 只评审不修改：结论先行，按 P0/P1/P2 分级，每项给依据与修法；默认走 review 档只读壳 |
+| programmer | 按方案最小实现：先读目标与相邻代码，改动最小化，跑能跑的验证 |
+| tester | 写/跑测试与回归：断言优先，输出命令+结果，不做产品改动 |
+| uiux | 界面与交互实现：还原设计稿，样式与既有组件一致 |
+| data-analyst | 数据提取/统计/图表：口径写明，异常数据如实标注 |
+| ops | 运维/脚本/环境：幂等可回滚，变更前后状态可查 |
+| scouter | 检索与摘要：多源交叉，结论附来源，不确定标不确定 |
+| clerk | 机械整理：格式化/清点/搬运，不改语义 |
+| observer | 视觉任务：看图说话，描述结构/颜色/异常，不臆测图外信息 |
+| expert-alpha/beta/gamma | 专家席：独立给出专业判断与修正方案，不互相引用 |
+| generic | 未分类任务的默认契约：按任务块照做，执行守则见壳自身系统提示 |
 
 ## Failure handling
 

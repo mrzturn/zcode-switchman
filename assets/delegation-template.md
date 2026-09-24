@@ -1,5 +1,11 @@
 # DELEGATION_V1 dispatch prompt template
 
+<!-- [2026-09-24]-[canonical machine-facing copy is now inlined in skills/switchman-routing/SKILL.md]-[a relative "plugin root" reference was unresolvable from the skill dir, so every careful dispatch paid a file-not-found Read; keep this file for humans only and keep both bodies in sync (enforced by test)] -->
+
+> Human-reference copy. The model reads the same body **inlined in
+> `skills/switchman-routing/SKILL.md`** — never this file. A test asserts the
+> two bodies stay byte-identical; edit both together.
+
 > Fixed-order template the main model uses when dispatching tasks to a
 > switchman shell. Fixed sections first, variable sections last — a
 > byte-stable prefix keeps the model's prompt cache warm. Since 0.17.0 the

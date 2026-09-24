@@ -91,8 +91,8 @@ State defaults to `~/.zcode/state/` (override with `ZCODE_SWITCHMAN_STATE`), hol
 
 ## Docs
 
-- Dispatch protocol (lane selection and DELEGATION_V1): [skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
-- Delegation prompt template (DELEGATION_V1): [assets/delegation-template.md](./assets/delegation-template.md)
+- Dispatch protocol (lane selection and DELEGATION_V1, template inlined in the skill): [skills/switchman-routing/SKILL.md](./skills/switchman-routing/SKILL.md)
+- Delegation prompt template (human-reference copy; the model reads the one inlined above, a test keeps both byte-identical): [assets/delegation-template.md](./assets/delegation-template.md)
 - Porting design doc (platform gaps, trade-offs, target structure): [docs/porting-handover.md](./docs/porting-handover.md)
 
 ## Layout & contracts
