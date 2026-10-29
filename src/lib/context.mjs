@@ -32,6 +32,9 @@
  *                             for the sub-agent context guard (shell sessions,
  *                             sess_subagent_* ids), default [30_000, 50_000,
  *                             70_000]; one advisory per tier per shell session
+ *   readBudgetLines: number → Read-input cap for the compact-tier read budget
+ *                             (src/lib/readbudget.mjs), default 200 lines; an
+ *                             explicit positive value overrides
  * Pure functions + thin sync IO, fail-open everywhere: missing files, partial
  * lines, corrupt JSON or bad fields all return null and callers degrade to
  * the static rule text. Reads only a bounded tail of the rollout file
@@ -59,6 +62,11 @@ export const SHELL_SESSION_PREFIX = "sess_subagent_";
 // before compact (tiers[1], 90k with the default tiers) — so the guard and the
 // tier texts can never drift apart; an explicit contextWarnAt still overrides.
 export const DEFAULT_CONTEXT_WARN_AT = DEFAULT_CONTEXT_TIERS[1];
+// Read-budget cap (lines): the compact-tier Read rewrite (src/lib/
+// readbudget.mjs) clamps a Read call's limit to this. Lives here so
+// parseContextSettings owns every settings.json field and readbudget.mjs can
+// stay free of settings-IO of its own.
+export const DEFAULT_READ_BUDGET_LINES = 200;
 export const CONTEXT_WARN_FILE = "context-warn.json";
 const ROLLOUT_DIRNAME = path.join(".zcode", "cli", "rollout");
 const ROLLOUT_FILE_PREFIX = "model-io-";
@@ -75,6 +83,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   tiers: DEFAULT_CONTEXT_TIERS,
   warnAt: DEFAULT_CONTEXT_WARN_AT,
   shellTiers: DEFAULT_SHELL_TIERS,
+  readBudgetLines: DEFAULT_READ_BUDGET_LINES,
 });
 
 /** Validate a contextTiers value: exactly three finite ascending positives, else null */
@@ -131,6 +140,9 @@ export function parseContextSettings(text) {
         out.warnAt = v.contextWarnAt; // explicit setting wins over the tier-derived default
       } else {
         out.warnAt = out.tiers[1]; // derived: start of the tier before compact, follows the effective tiers
+      }
+      if (typeof v.readBudgetLines === "number" && Number.isFinite(v.readBudgetLines) && v.readBudgetLines > 0) {
+        out.readBudgetLines = v.readBudgetLines;
       }
     }
   } catch { /* fail-open: defaults */ }
@@ -270,7 +282,7 @@ export function estimateContext(sessionId, projectDir) {
     const pct = est / cfg.window;
     return {
       est, window: cfg.window, pct, tier: tierOf(est, cfg.tiers), tiers: cfg.tiers, warnAt: cfg.warnAt,
-      shellTiers: cfg.shellTiers,
+      shellTiers: cfg.shellTiers, readBudgetLines: cfg.readBudgetLines,
     };
   } catch {
     return null;

@@ -44,6 +44,13 @@
  *    (fail-open: a missing estimate never blocks work). See
  *    src/lib/context.mjs (contextWriteWarning, contextStrictDenial) and
  *    src/lib/route.mjs (DISPATCH_STRICT).
+ * 0.52 read budget (Read only, non-shell sessions, compact tier and above)
+ *    — an oversized Read (limit missing or above readBudgetLines, default
+ *    200) is capped in-flight via hookSpecificOutput.updatedInput; the
+ *    platform re-validates the rewritten input and a one-line note rides
+ *    the tool result. A capped call emits the rewrite alone — at the
+ *    compact tier the cap is the tightened guidance. See
+ *    src/lib/readbudget.mjs.
  * 0.55 db-skill advisory (Bash, non-shell sessions) — when the command
  *    invokes a raw database client (mysql / mysqldump / redis-cli …), inject
  *    a hint-only nudge toward the zcode-switchman:db-query skill via
@@ -90,7 +97,8 @@ import {
 } from "../src/lib/lang.mjs";
 import { resolveProjectRoot, isLangGateOpen, markLangGateOpen } from "../src/lib/project.mjs";
 import { DISPATCH_OFF, DISPATCH_STRICT, loadDispatchMode } from "../src/lib/route.mjs";
-import { contextWriteWarning, contextStrictDenial, contextShellAdvisory, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
+import { contextWriteWarning, contextStrictDenial, contextShellAdvisory, estimateContext, SHELL_SESSION_PREFIX } from "../src/lib/context.mjs";
+import { readBudgetRewrite } from "../src/lib/readbudget.mjs";
 import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
 import { DB_HINT_OFF, loadDbHintMode, detectRawDbClient, renderDbHintBashLine } from "../src/lib/dbhint.mjs";
 import {
@@ -214,14 +222,39 @@ try {
   // sessions). Mode decides the response: "fleet" → one-shot advisory
   // (additionalContext only, never a permission decision); "strict" → the
   // first guarded call above the threshold is denied once per user turn (the
-  // claim consumes the flag, so re-issuing the call proceeds); "off" → the
+  // claim consumes the flag, so re-issuing the same call proceeds); "off" → the
   // guard is skipped entirely. Silent without an estimate — fail-open, the
   // guard never blocks work it cannot measure.
+  // Read budget first (Read only, compact tier and above, src/lib/
+  // readbudget.mjs): an oversized Read is capped in-flight via
+  // updatedInput — the platform re-validates and executes the capped call,
+  // a one-line note rides the result. At the compact tier the cap IS the
+  // tightened guidance, so a capped call emits the rewrite alone and the
+  // per-turn advisory / strict deny do not also fire on it.
   if (CONTEXT_GUARD_TOOLS.has(toolLc)) {
     try {
       const projectDir = projectRoot();
       const mode = loadDispatchMode(projectDir);
       if (mode !== DISPATCH_OFF) {
+        if (toolLc === "read") {
+          const est = estimateContext(sessionId, projectDir);
+          const rewrite = readBudgetRewrite(payload.tool_input, est);
+          if (rewrite) {
+            // the rewrite is unthrottled entry control and touches no flag:
+            // the advisory/strict-deny one-shot system keeps its own
+            // once-per-turn behavior on the other guarded calls
+            process.stdout.write(
+              JSON.stringify({
+                hookSpecificOutput: {
+                  hookEventName: "PreToolUse",
+                  updatedInput: rewrite.input,
+                  additionalContext: rewrite.note,
+                },
+              }) + "\n",
+            );
+            process.exit(0);
+          }
+        }
         if (mode === DISPATCH_STRICT) {
           const denial = contextStrictDenial(sessionId, projectDir);
           if (denial) {

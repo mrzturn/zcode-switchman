@@ -73,11 +73,17 @@ Steps:
      title links previous versions when an earlier decision needs recovering)
 4. **Write the pointer** `.switchman/handover.json` in the project root:
    `{"path": "<absolute path to the NEW handover.<NN>.md>", "session_id":
-   "<session id>", "created_at": "<iso timestamp>"}`. This file is the
-   machine link to the **latest** version — always the doc written this run,
-   never an older one: the SessionStart hook (matcher includes `compact`)
-   injects it into the post-compaction context and clears the pointer —
-   one-shot.
+   "<session id>", "created_at": "<iso timestamp>", "est": <this context's
+   usage estimate in whole tokens — take the number from the latest
+   `[ROUTE]` / `[Context]` line's "≈ <n>k" figure × 1000; omit the field
+   only when no estimate line is available>}`. `est` lets the per-turn
+   pickup tell a real post-compaction resume (the context shrank well
+   below it) from a session that kept working without compacting (the
+   pointer stays put for the future fresh context). This file is the
+   machine link to the **latest** version — always the doc written this
+   run, never an older one: the SessionStart hook (matcher includes
+   `compact`) injects it into the post-compaction context and clears the
+   pointer — one-shot.
 5. **Verify**: confirm both files exist on disk (read them back) — and that
    the pointer's path is the new `handover.<NN>.md`, not an older version —
    before prompting the user.

@@ -67,9 +67,11 @@ model; `vision` — a model with `vision=true` (warn if none is enabled).
 
 Checklist for the user:
 
-- start a **new ZCode session** — agent files are snapshotted at session
-  start and edits do not hot-reload; the change shows in the new session's
-  `[Binding]` banner line;
+- the change takes effect from the **next message** of this session: agent
+  definitions are re-read at the start of every parent turn (running
+  sub-agents keep the snapshot they started with, so in-flight work is
+  never interrupted — new dispatches get the new model); a fresh session
+  shows it in the `[Binding]` banner line too;
 - run `/switchman-doctor` to verify;
 - the shells themselves never need reinstalling — the session hook keeps
   bodies synced to the templates across plugin updates. Shell names never

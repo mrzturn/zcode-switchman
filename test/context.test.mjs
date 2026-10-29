@@ -164,11 +164,12 @@ test("readLastRolloutUsage: missing file, empty file and unsafe session ids → 
 
 // ── settings ──
 
-test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, shellTiers, warnAt, fail-open", () => {
+test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, shellTiers, warnAt, readBudgetLines, fail-open", () => {
   assert.deepEqual(parseContextSettings("{}"), {
     disabled: false, window: DEFAULT_CONTEXT_WINDOW, cacheReadFactor: DEFAULT_CACHE_READ_FACTOR,
     tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: DEFAULT_CONTEXT_WARN_AT,
     shellTiers: [...DEFAULT_SHELL_TIERS],
+    readBudgetLines: 200,
   });
   assert.equal(parseContextSettings(JSON.stringify({ contextEstimate: "off" })).disabled, true);
   assert.equal(parseContextSettings(JSON.stringify({ contextEstimate: "OFF" })).disabled, false, "exact string only");
@@ -211,6 +212,10 @@ test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, sh
   assert.deepEqual(parseContextSettings("{not json").tiers, [...DEFAULT_CONTEXT_TIERS]);
   assert.deepEqual(parseContextSettings("{not json").shellTiers, [...DEFAULT_SHELL_TIERS]);
   assert.equal(parseContextSettings("{not json").warnAt, DEFAULT_CONTEXT_WARN_AT);
+  assert.equal(parseContextSettings("{not json").readBudgetLines, 200);
+  assert.equal(parseContextSettings(JSON.stringify({ readBudgetLines: 80 })).readBudgetLines, 80, "explicit positive readBudgetLines overrides");
+  assert.equal(parseContextSettings(JSON.stringify({ readBudgetLines: 0 })).readBudgetLines, 200, "non-positive → default");
+  assert.equal(parseContextSettings(JSON.stringify({ readBudgetLines: "big" })).readBudgetLines, 200, "non-number → default");
 });
 
 test("loadContextSettings: reads the project settings file, missing dir → defaults", () => {
@@ -218,6 +223,7 @@ test("loadContextSettings: reads the project settings file, missing dir → defa
     disabled: false, window: DEFAULT_CONTEXT_WINDOW, cacheReadFactor: DEFAULT_CACHE_READ_FACTOR,
     tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: DEFAULT_CONTEXT_WARN_AT,
     shellTiers: [...DEFAULT_SHELL_TIERS],
+    readBudgetLines: 200,
   });
   const dir = sandboxProject(JSON.stringify({ v: 1, lang: {}, contextEstimate: "off", contextWindow: 500_000 }));
   const cfg = loadContextSettings(dir);
@@ -661,17 +667,35 @@ test("hook smoke: shell guard — T1 injects once, same tier silent, 55k escalat
   assert.match(ctxOfResult(t3), /立即交接/);
   assert.match(ctxOfResult(t3), /progress: partial/);
 
-  // 4. non-shell session, fleet mode: Read is guarded now — above the guard
-  // it advises once, still purely non-blocking (advisory schema, never deny)
+  // 4. non-shell session, fleet mode: Read at the compact tier is rewritten
+  // by the read budget — capped in-flight via updatedInput (never a
+  // permission decision), note rides the result; Grep then claims the
+  // per-turn advisory (advisory schema, never deny)
   writeRollout("main-sess-read", rec({ inputTokens: 200_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
   const mainRead = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir });
-  assert.equal(mainRead.status, 0, "exit 0 — Read is never blocked in fleet mode");
-  assert.match(JSON.parse(mainRead.stdout).hookSpecificOutput.additionalContext, /write-guard/, "non-shell Read above the guard → one-shot advisory");
+  assert.equal(mainRead.status, 0, "exit 0 — a capped Read is never blocked");
+  const capDoc = JSON.parse(mainRead.stdout).hookSpecificOutput;
+  assert.deepEqual(Object.keys(capDoc).sort(), ["additionalContext", "hookEventName", "updatedInput"], "read budget schema: updatedInput + note, never a permission decision");
+  assert.deepEqual(capDoc.updatedInput, { file_path: "/tmp/x", limit: 200 }, "limit capped at readBudgetLines, offset-style fields preserved");
+  assert.match(capDoc.additionalContext, /capped at 200 lines/, "the cap note rides the rewrite");
+  assert.match(capDoc.additionalContext, /200k\/1M/, "the note carries the live estimate");
+  // the rewrite touches no flag: a same-turn Grep gets the ordinary advisory
+  // (once per turn), a second Grep is silenced by the shared one-shot flag
+  const grepDoc = JSON.parse(runHook("pre-tool-use.mjs", { tool_name: "Grep", tool_input: { pattern: "x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }).stdout).hookSpecificOutput;
+  assert.match(grepDoc.additionalContext, /write-guard/, "advisory system unaffected by the rewrite");
   assert.equal(
-    runHook("pre-tool-use.mjs", { tool_name: "Grep", tool_input: { pattern: "x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }).stdout,
+    runHook("pre-tool-use.mjs", { tool_name: "Glob", tool_input: { pattern: "x" }, session_id: "main-sess-read", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }).stdout,
     "",
-    "same-turn Grep → silenced by the shared one-shot flag",
+    "second guarded call of the turn → silenced by the shared one-shot flag",
   );
+
+  // a Read already within the budget passes untouched (no rewrite) and the
+  // per-turn advisory path answers instead
+  writeRollout("main-sess-read2", rec({ inputTokens: 200_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const smallRead = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x", limit: 120 }, session_id: "main-sess-read2", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir });
+  const smallDoc = JSON.parse(smallRead.stdout).hookSpecificOutput;
+  assert.equal(smallDoc.updatedInput, undefined, "within-budget Read → no rewrite");
+  assert.match(smallDoc.additionalContext, /write-guard/, "within-budget Read → the ordinary advisory");
 
   // WebFetch is outside the guarded surface: silent at any usage
   writeRollout("main-sess-fetch", rec({ inputTokens: 200_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));

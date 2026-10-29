@@ -16,6 +16,17 @@ export function pointerPath(projectDir) {
   return path.join(projectDir, ".switchman", "handover.json");
 }
 
+/**
+ * Compaction margin for the per-turn pickup: the pointer records the
+ * context estimate at write time ("est"); the live estimate must fall at
+ * least this far below it before the pickup treats the session as actually
+ * compacted and injects + consumes the pointer. Larger than any per-turn
+ * growth, smaller than any real compaction delta — a pointer written at
+ * 140k delivers into a ~25k post-compact context (delta ≈ 115k) but stays
+ * untouched while the session grows 140k → 200k.
+ */
+export const HANDOVER_COMPACT_MARGIN = 30_000;
+
 /** Resolve the pointer, or null. Relative doc paths resolve against projectDir. */
 export function readPointer(projectDir) {
   const p = readJson(pointerPath(projectDir));

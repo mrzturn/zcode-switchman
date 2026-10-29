@@ -21,6 +21,7 @@ export const statePaths = {
   routing: () => path.join(stateDir(), "routing.json"),
   failuresLog: () => path.join(stateDir(), "failures.log"),
   sessionRoots: () => path.join(stateDir(), "session-roots.json"),
+  dispatchLedger: () => path.join(stateDir(), "dispatches.jsonl"),
 };
 
 export function readJson(p) {

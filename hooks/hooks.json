@@ -54,6 +54,18 @@
             "statusMessage": "zcode-switchman: capturing language preference…"
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/dispatch-ledger.mjs"],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-switchman: recording dispatch ledger…"
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
@@ -66,6 +78,19 @@
             "args": ["${ZCODE_PLUGIN_ROOT}/hooks/post-tool-failure.mjs"],
             "timeoutMs": 3000,
             "statusMessage": "zcode-switchman: recording dispatch failure…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/stop.mjs"],
+            "timeoutMs": 3000,
+            "statusMessage": "zcode-switchman: checking handover threshold…"
           }
         ]
       }

@@ -21,6 +21,14 @@
  * whole feature off via `"contextEstimate": "off"`), [ROUTE] carries the
  * numbers and a usage-tier instruction; otherwise it degrades to the static
  * text verbatim.
+ * A pending handover pointer (.switchman/handover.json, written by
+ * /switchman-handover or the Stop-hook auto-handover) is picked up on user
+ * turns once the context estimate has fallen well below the est the
+ * pointer recorded at write time — i.e. after a real compaction
+ * (src/lib/handover.mjs HANDOVER_COMPACT_MARGIN); the SessionStart hook's
+ * one-shot latch misses an in-session /compact, this per-turn pickup
+ * closes that gap without losing the pointer when the user never
+ * compacts.
  * Exception: while the first-run ask is active the [ROUTE] line is held
  * back — the language gate is hard-denying Bash/Write/Edit and dispatches
  * then, so the rule would only induce a dispatch doomed to be denied; it
@@ -38,6 +46,7 @@ import { COMMENT_RULE_OFF, loadCommentRuleMode, renderCommentRuleLine } from "..
 import { DB_HINT_OFF, loadDbHintMode, detectDbIntent, renderDbHintPromptLine } from "../src/lib/dbhint.mjs";
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
 import { resetForeignDeny } from "../src/lib/foreign-agent.mjs";
+import { readPointer, clearPointer, readDocContent, HANDOVER_COMPACT_MARGIN } from "../src/lib/handover.mjs";
 import { resolveProjectRoot, isLangGateOpen } from "../src/lib/project.mjs";
 
 function readStdinPayload() {
@@ -61,6 +70,45 @@ try {
   try { resetForeignDeny(projectDir, sessionId); } catch { /* fail-open */ }
 
   const lines = [];
+
+  // [2026-10-30]-[pick up a pending handover pointer only after a real compaction]-[the SessionStart one-shot latch misses an in-session /compact, but consuming the pointer on any turn would lose the handover when the user keeps working without compacting — the pointer's est field separates the two]
+  // Pending-handover pickup: the SessionStart hook consumes the pointer at
+  // session start, but its one-shot latch means an in-session /compact
+  // never re-fires it — this per-turn check closes that gap, gated on
+  // compaction evidence: the pointer records the context estimate at write
+  // time ("est", written by the Stop-driven auto-handover and
+  // /switchman-handover); the pickup injects + consumes only when the live
+  // estimate has fallen well below it (the context genuinely shrank) or
+  // when no est is available (fail-open toward delivery, the legacy
+  // pointer shape). A session that kept working without compacting leaves
+  // the pointer untouched — the future fresh context still gets it.
+  // Consume-once keeps delivery single-shot; the SessionStart hook runs
+  // first in a turn (context init precedes prompt hooks), so a fresh
+  // session never double-injects. Not gated by language/dispatch modes —
+  // resuming work is not opt-in behavior. Fail-open: an unreadable pointer
+  // simply never injects.
+  if (projectDir) {
+    try {
+      const ptr = readPointer(projectDir);
+      if (ptr) {
+        const live = estimateContext(sessionId, projectDir);
+        const ptrEst = typeof ptr.est === "number" && Number.isFinite(ptr.est) && ptr.est > 0 ? ptr.est : null;
+        const compacted = ptrEst === null ||
+          !live ||
+          live.est < ptrEst - HANDOVER_COMPACT_MARGIN;
+        if (compacted) {
+          const doc = readDocContent(projectDir, ptr);
+          clearPointer(projectDir); // one-shot: consumed by this injection
+          lines.push(
+            doc
+              ? `[Handover] resuming from doc (${ptr.path}):\n${doc}\nContinue from its Next steps now.`
+              : `[Handover] pending: read ${ptr.path} and continue from its next steps`,
+          );
+        }
+      }
+    } catch { /* fail-open */ }
+  }
+
   let lang = null;
   let asking = false; // first-run lang ask active → hold [ROUTE] back (see header JSDoc)
   if (projectDir) {
