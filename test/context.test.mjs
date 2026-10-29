@@ -65,11 +65,11 @@ const FULL_FIXTURE = [
   '{"attempt":1,"response":{"us', // mid-write, no trailing newline
 ].join("\n");
 
-// one-tier fixture per absolute-k tier (default boundaries 50k/90k/130k)
+// one-tier fixture per absolute-k tier (default boundaries 80k/120k/150k)
 const tierFixture = (sessionId, inputTokens) =>
   writeRollout(sessionId, [rec({ inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }), rec({ inputTokens, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 })].join("\n"));
 for (const [sid, tokens] of [
-  ["test-free", 30_000], ["test-frugal", 70_000], ["test-tight", 110_000], ["test-compact", 140_000],
+  ["test-free", 30_000], ["test-frugal", 100_000], ["test-tight", 135_000], ["test-compact", 160_000],
   ["test-guard-edge", 20_000], // est exactly at a derived guard boundary (tiers [10k,20k,30k])
 ]) tierFixture(sid, tokens);
 
@@ -183,7 +183,7 @@ test("parseContextSettings: defaults, exact-off, window, cache factor, tiers, sh
   }
   // write-guard default derives from the effective tiers: start of the tier
   // before compact (tiers[1]); an explicit positive contextWarnAt overrides
-  assert.equal(parseContextSettings("{}").warnAt, 90_000, "default guard = default tiers[1]");
+  assert.equal(parseContextSettings("{}").warnAt, 120_000, "default guard = default tiers[1]");
   assert.equal(
     parseContextSettings(JSON.stringify({ contextTiers: [10_000, 20_000, 30_000] })).warnAt,
     20_000,
@@ -234,14 +234,14 @@ test("loadContextSettings: reads the project settings file, missing dir → defa
 
 // ── tiers (absolute k), estimate pipeline, formatting ──
 
-test("tierOf: absolute-k boundaries — 49k free / 50k frugal / 89k frugal / 90k tight / 129k tight / 130k compact", () => {
+test("tierOf: absolute-k boundaries — 79k free / 80k frugal / 119k frugal / 120k tight / 149k tight / 150k compact", () => {
   assert.equal(tierOf(0), "free");
-  assert.equal(tierOf(49_999), "free");
-  assert.equal(tierOf(50_000), "frugal");
-  assert.equal(tierOf(89_999), "frugal");
-  assert.equal(tierOf(90_000), "tight");
-  assert.equal(tierOf(129_999), "tight");
-  assert.equal(tierOf(130_000), "compact");
+  assert.equal(tierOf(79_999), "free");
+  assert.equal(tierOf(80_000), "frugal");
+  assert.equal(tierOf(119_999), "frugal");
+  assert.equal(tierOf(120_000), "tight");
+  assert.equal(tierOf(149_999), "tight");
+  assert.equal(tierOf(150_000), "compact");
   assert.equal(tierOf(1_500_000), "compact");
   assert.equal(tierOf(Number.NaN), "free", "NaN → free");
 });
@@ -253,7 +253,7 @@ test("tierOf: custom contextTiers boundaries are honored", () => {
   assert.equal(tierOf(19_999, tiers), "frugal");
   assert.equal(tierOf(20_000, tiers), "tight");
   assert.equal(tierOf(30_000, tiers), "compact");
-  assert.equal(tierOf(70_000, [1, 2, 3, 4]), "frugal", "malformed tiers → default boundaries (70k is 50k–90k → frugal)");
+  assert.equal(tierOf(100_000, [1, 2, 3, 4]), "frugal", "malformed tiers → default boundaries (100k is 80k–120k → frugal)");
 });
 
 test("shellTierOf: 0..3 against contextShellTiers (default 30k/50k/70k)", () => {
@@ -289,11 +289,11 @@ test("shellAdvisoryText: absolute k marks, no percent sign, tier behaviors pinne
 
 test("estimateContext: est = input + cacheWrite + cacheRead*factor, absolute-k tier from settings", () => {
   process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
-  const proj = sandboxProject(); // defaults: window 1M, factor 0, tiers 50k/90k/130k, warnAt 90k (derived)
+  const proj = sandboxProject(); // defaults: window 1M, factor 0, tiers 80k/120k/150k, warnAt 120k (derived)
   const est = estimateContext("test", proj);
   assert.equal(est.est, 27549 + 500); // cacheWrite counts, cacheRead (0) does not
   assert.equal(est.window, DEFAULT_CONTEXT_WINDOW);
-  assert.equal(est.tier, "free", "28k < 50k → free");
+  assert.equal(est.tier, "free", "28k < 80k → free");
   assert.equal(est.warnAt, DEFAULT_CONTEXT_WARN_AT);
   assert.deepEqual(est.tiers, [...DEFAULT_CONTEXT_TIERS]);
   fs.rmSync(proj, { recursive: true, force: true });
@@ -302,7 +302,7 @@ test("estimateContext: est = input + cacheWrite + cacheRead*factor, absolute-k t
   const projHalf = sandboxProject(JSON.stringify({ v: 1, contextCacheReadFactor: 0.5, contextWindow: 1_000_000 }));
   const half = estimateContext("test-factor", projHalf);
   assert.equal(half.est, 100_000 + 500_000 * 0.5);
-  assert.equal(half.tier, "compact", "350k ≥ 130k → compact");
+  assert.equal(half.tier, "compact", "350k ≥ 150k → compact");
   fs.rmSync(projHalf, { recursive: true, force: true });
 
   const projCustom = sandboxProject(JSON.stringify({ v: 1, contextTiers: [10_000, 20_000, 30_000] }));
@@ -342,10 +342,10 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
     assert.match(dyn, /^\[ROUTE\] context ≈ 70k\/1M \(7%\) — token economy \(IRON RULE\):/);
     assert.ok(dyn.includes("Dispatches go to [Shells] lanes via DELEGATION_V1."));
     assert.equal(dyn.split("\n")[1], {
-      free: "Context free (<50k): trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on; chunkier work goes to dispatch.",
-      frugal: "Frugal (50k–90k): hands-on only for outputs ≤3k tokens (single-file fixes, .switchman bookkeeping, fleet coordination); dispatch everything else.",
-      tight: "Tight (90k–130k): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from 90k refresh the handover doc first; keep main-context output short.",
-      compact: "Compact recommended (≥130k): write/refresh the handover doc first (the only allowed larger output), then /compact or start a fresh session.",
+      free: "Context free (<80k): trivia (one-line fixes, 1-2 known files, .switchman bookkeeping, fleet coordination) stays hands-on; chunkier work goes to dispatch.",
+      frugal: "Frugal (80k–120k): hands-on only for outputs ≤3k tokens (single-file fixes, .switchman bookkeeping, fleet coordination); dispatch everything else.",
+      tight: "Tight (120k–150k): hands-on only for <1k outputs (one-line fixes, bookkeeping, coordination); from 120k refresh the handover doc first; keep main-context output short.",
+      compact: "Compact recommended (≥150k): write/refresh the handover doc first (the only allowed larger output), then /compact or start a fresh session.",
     }[tier], `${tier}: tier line pinned verbatim`);
   }
   assert.match(
@@ -380,10 +380,10 @@ test("renderRouteLine: no estimate → static text verbatim; with estimate → 3
 test("hook smoke: [ROUTE] carries numbers and the tier line for every absolute-k tier", () => {
   const proj = sandboxProject();
   const cases = [
-    ["test-free", /context ≈ 30k\/1M \(3%\)/, /Context free \(<50k\): trivia/],
-    ["test-frugal", /context ≈ 70k\/1M \(7%\)/, /Frugal \(50k–90k\): hands-on only for outputs ≤3k tokens/],
-    ["test-tight", /context ≈ 110k\/1M \(11%\)/, /Tight \(90k–130k\): hands-on only for <1k outputs/],
-    ["test-compact", /context ≈ 140k\/1M \(14%\)/, /Compact recommended \(≥130k\): write\/refresh the handover doc first/],
+    ["test-free", /context ≈ 30k\/1M \(3%\)/, /Context free \(<80k\): trivia/],
+    ["test-frugal", /context ≈ 100k\/1M \(10%\)/, /Frugal \(80k–120k\): hands-on only for outputs ≤3k tokens/],
+    ["test-tight", /context ≈ 135k\/1M \(13.5%\)/, /Tight \(120k–150k\): hands-on only for <1k outputs/],
+    ["test-compact", /context ≈ 160k\/1M \(16%\)/, /Compact recommended \(≥150k\): write\/refresh the handover doc first/],
   ];
   for (const [sid, numRe, tierRe] of cases) {
     const ctx = ctxOf(runHook("user-prompt-submit.mjs", { session_id: sid, prompt: "hi", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
@@ -428,7 +428,7 @@ test("hook smoke: degradation — no rollout, contextEstimate off, dispatch off"
 test("hook smoke: session-start banner carries [Context] with the tier name; omitted otherwise", () => {
   const proj = sandboxProject();
   const withCtx = ctxOf(runHook("session-start.mjs", { session_id: "test-tight", cwd: proj }, { ZCODE_ROLLOUT_DIR: fixtureDir }));
-  assert.match(withCtx, /\[Context\] ≈ 110k\/1M \(11%\) — tight/);
+  assert.match(withCtx, /\[Context\] ≈ 135k\/1M \(13.5%\) — tight/);
   assert.ok(withCtx.indexOf("[Context]") > withCtx.indexOf("[Workspace]"), "[Context] sits after [Workspace]");
   assert.ok(withCtx.indexOf("[Context]") < withCtx.indexOf("[Rule]"), "[Context] sits before [Rule]");
 
@@ -523,10 +523,10 @@ const editPayload = (sessionId, project, tool = "Edit") => ({
 });
 
 test("hook smoke: write-guard warns once per turn above contextWarnAt, non-blocking schema", () => {
-  const proj = sandboxProject(); // default derived warnAt 90k; test-tight est = 110k
+  const proj = sandboxProject(); // default derived warnAt 120k; test-tight est = 135k
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
   const sid = "test-tight-wg"; // rollout fixture id + unique anchor id (one id, one project)
-  writeRollout(sid, rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  writeRollout(sid, rec({ inputTokens: 135_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
 
   const first = runHook("pre-tool-use.mjs", editPayload(sid, proj), env);
   assert.equal(first.status, 0, "exit 0 — nothing blocked");
@@ -537,7 +537,7 @@ test("hook smoke: write-guard warns once per turn above contextWarnAt, non-block
     "advisory schema: additionalContext only, never a permission decision",
   );
   assert.equal(doc.hookSpecificOutput.hookEventName, "PreToolUse");
-  assert.match(doc.hookSpecificOutput.additionalContext, /^\[Context\] ≈ 110k\/1M \(11%\) — above the 90k write-guard:/);
+  assert.match(doc.hookSpecificOutput.additionalContext, /^\[Context\] ≈ 135k\/1M \(13.5%\) — above the 120k write-guard:/);
   assert.match(doc.hookSpecificOutput.additionalContext, /substantive work should dispatch/);
   assert.match(doc.hookSpecificOutput.additionalContext, /refresh the handover doc first/);
 
@@ -567,11 +567,11 @@ test("hook smoke: write-guard silent below the guard, without an estimate, or fo
   const proj = sandboxProject();
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
 
-  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-frugal-wg", proj), env).stdout, "", "70k ≤ 90k → silent");
+  assert.equal(runHook("pre-tool-use.mjs", editPayload("test-frugal-wg", proj), env).stdout, "", "100k ≤ 120k guard → silent");
   assert.equal(runHook("pre-tool-use.mjs", editPayload("no-such-session-wg", proj), env).stdout, "", "no estimate → silent");
 
   // MultiEdit and NotebookEdit are matched too, and share the same per-turn flag
-  writeRollout("test-compact-wg", rec({ inputTokens: 140_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  writeRollout("test-compact-wg", rec({ inputTokens: 160_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
   const m1 = runHook("pre-tool-use.mjs", editPayload("test-compact-wg", proj, "MultiEdit"), env);
   assert.match(JSON.parse(m1.stdout).hookSpecificOutput.additionalContext, /write-guard/, "MultiEdit warns");
   assert.equal(runHook("pre-tool-use.mjs", editPayload("test-compact-wg", proj, "NotebookEdit"), env).stdout, "", "already warned this turn");
@@ -583,7 +583,7 @@ test("hook smoke: corrupt write-guard state file degrades to a warning (fail-ope
   const proj = sandboxProject();
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
   fs.writeFileSync(path.join(proj, LANG_SETTINGS_DIRNAME, "context-warn.json"), "{corrupt");
-  writeRollout("test-tight-corrupt", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  writeRollout("test-tight-corrupt", rec({ inputTokens: 135_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
   const out = runHook("pre-tool-use.mjs", editPayload("test-tight-corrupt", proj), env);
   const doc = JSON.parse(out.stdout);
   assert.equal(out.status, 0, "exit 0 — nothing blocked");
@@ -606,16 +606,16 @@ test("hook smoke: contextWriteWarning unit — null without estimate or under th
 test("contextWriteWarning: strict boundary — est exactly at the guard stays silent, one above warns; derived guard follows tiers", () => {
   process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
 
-  // explicit warnAt = 70_000, est = 70_000 → not strictly above → silent
-  const projEq = sandboxProject(JSON.stringify({ v: 1, contextWarnAt: 70_000 }));
+  // explicit warnAt = 100_000, est = 100_000 (test-frugal) → not strictly above → silent
+  const projEq = sandboxProject(JSON.stringify({ v: 1, contextWarnAt: 100_000 }));
   assert.equal(contextWriteWarning("test-frugal", projEq), null, "est == explicit warnAt → silent");
   fs.rmSync(projEq, { recursive: true, force: true });
 
-  // explicit warnAt = 69_999, est = 70_000 → warns, and the rendered threshold is the effective one
-  const projAbove = sandboxProject(JSON.stringify({ v: 1, contextWarnAt: 69_999 }));
+  // explicit warnAt = 99_999, est = 100_000 → warns, and the rendered threshold is the effective one
+  const projAbove = sandboxProject(JSON.stringify({ v: 1, contextWarnAt: 99_999 }));
   assert.match(
     contextWriteWarning("test-frugal", projAbove),
-    /above the 70k write-guard:/,
+    /above the 100k write-guard:/,
     "est > explicit warnAt → warns with the effective threshold rendered",
   );
   fs.rmSync(projAbove, { recursive: true, force: true });
@@ -725,12 +725,12 @@ test("hook smoke: shell guard — T1 injects once, same tier silent, 55k escalat
 
 test("contextStrictDenial unit: above the guard denies once with threshold and replay guidance; below/without estimate → null", () => {
   process.env.ZCODE_ROLLOUT_DIR = fixtureDir;
-  const proj = sandboxProject(); // default derived warnAt 90k
+  const proj = sandboxProject(); // default derived warnAt 120k
   assert.equal(contextStrictDenial("test-frugal", proj), null, "below the guard → null (allow, silent)");
   assert.equal(contextStrictDenial("no-such-session", proj), null, "no estimate → null (fail-open, never blocks)");
 
-  const denial = contextStrictDenial("test-tight", proj); // est 110k > 90k derived guard
-  assert.match(denial, /^\[Context\] ≈ 110k\/1M \(11%\) — above the 90k context guard \(strict mode\):/);
+  const denial = contextStrictDenial("test-tight", proj); // est 135k > 120k derived guard
+  assert.match(denial, /^\[Context\] ≈ 135k\/1M \(13.5%\) — above the 120k context guard \(strict mode\):/);
   assert.match(denial, /dispatch substantive work to a \[Shells\] lane \(DELEGATION_V1\) or refresh the handover doc first/);
   assert.match(denial, /re-issue the same call to continue \(this deny fires once per user turn\)\./);
   assert.equal(contextStrictDenial("test-tight", proj), null, "flag consumed → the replayed call proceeds");
@@ -742,15 +742,17 @@ test("contextStrictDenial unit: above the guard denies once with threshold and r
 test("hook smoke: strict mode denies the first guarded call per turn (reads included), replay proceeds; off mode is fully silent", () => {
   const projStrict = sandboxProject(JSON.stringify({ v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "strict" }));
   const env = { ZCODE_ROLLOUT_DIR: fixtureDir };
-  writeRollout("test-strict-read", rec({ inputTokens: 110_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  writeRollout("test-strict-read", rec({ inputTokens: 135_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
 
   // first guarded call of the turn — a Read is denied with the strict guidance
+  // (135k: above the 120k derived guard, below the 150k compact tier so the
+  // read-budget rewrite does not intercept)
   const readDeny = runHook("pre-tool-use.mjs", { tool_name: "Read", tool_input: { file_path: "/tmp/x" }, session_id: "test-strict-read", cwd: projStrict }, env);
   assert.equal(readDeny.status, 0, "deny exits 0 (a permission decision, not a crash)");
   const readDoc = JSON.parse(readDeny.stdout).hookSpecificOutput;
   assert.equal(readDoc.permissionDecision, "deny");
   assert.equal(readDoc.additionalContext, undefined, "strict denial is a decision, not an advisory");
-  assert.match(readDoc.permissionDecisionReason, /above the 90k context guard \(strict mode\)/);
+  assert.match(readDoc.permissionDecisionReason, /above the 120k context guard \(strict mode\)/);
   assert.match(readDoc.permissionDecisionReason, /re-issue the same call to continue/);
 
   // the claim consumed the one-shot flag: replay (and further guarded calls) proceed silently

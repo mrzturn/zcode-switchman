@@ -44,15 +44,15 @@ const sandboxProject = (settings) => {
 
 const est = (over = {}) => ({
   est: 200_000, window: 1_000_000, pct: 0.2, tier: "compact",
-  tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: 90_000,
+  tiers: [...DEFAULT_CONTEXT_TIERS], warnAt: 120_000,
   shellTiers: [30_000, 50_000, 70_000], readBudgetLines: 200,
   ...over,
 });
 
 test("readBudgetRewrite: fires only at the compact tier; cap only ever shrinks; offset preserved; pages untouched", () => {
   // below the compact tier → never
-  assert.equal(readBudgetRewrite({ file_path: "/x" }, est({ est: 129_999 })), null, "tight tier is not enough");
-  assert.ok(readBudgetRewrite({ file_path: "/x" }, est({ est: 130_000 })), "exactly at tiers[2] arms");
+  assert.equal(readBudgetRewrite({ file_path: "/x" }, est({ est: 149_999 })), null, "tight tier is not enough");
+  assert.ok(readBudgetRewrite({ file_path: "/x" }, est({ est: 150_000 })), "exactly at tiers[2] arms");
   const at = readBudgetRewrite({ file_path: "/x", offset: 500 }, est());
   assert.ok(at, "compact tier rewrites an unbounded read");
   assert.deepEqual(at.input, { file_path: "/x", offset: 500, limit: 200 }, "limit capped, offset preserved");

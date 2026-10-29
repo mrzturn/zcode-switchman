@@ -101,7 +101,7 @@ test("stopHandoverDecision: full guard chain — tier, dispatch, estimate, point
   const rolloutDir = fs.mkdtempSync(path.join(os.tmpdir(), "switchman-ah-rollout-"));
   process.env.ZCODE_ROLLOUT_DIR = rolloutDir;
   fs.writeFileSync(path.join(rolloutDir, "model-io-ah-1.jsonl"),
-    JSON.stringify({ type: "model_io", response: { usage: { inputTokens: 140_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } } }) + "\n");
+    JSON.stringify({ type: "model_io", response: { usage: { inputTokens: 165_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } } }) + "\n");
   d = stopHandoverDecision({ sessionId: "ah-1", projectDir: dir, pluginRoot: PLUGIN_ROOT });
   assert.ok(d, "compact tier + all guards pass → decision");
   assert.ok(d.reason.includes("[Handover]"));
@@ -113,7 +113,7 @@ test("stopHandoverDecision: full guard chain — tier, dispatch, estimate, point
   const dir2 = sandboxProject();
   writePointer(dir2, { path: path.join(dir2, ".switchman", "handover.01.md") });
   fs.writeFileSync(path.join(rolloutDir, "model-io-ah-2.jsonl"),
-    JSON.stringify({ type: "model_io", response: { usage: { inputTokens: 140_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } } }) + "\n");
+    JSON.stringify({ type: "model_io", response: { usage: { inputTokens: 165_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } } }) + "\n");
   assert.equal(stopHandoverDecision({ sessionId: "ah-2", projectDir: dir2, pluginRoot: PLUGIN_ROOT }), null, "pointer pending → silent");
   assert.ok(readPointer(dir2), "the pointer itself is untouched by the driver");
   // the skip did not consume the once-per-session flag: once the pointer is
@@ -147,7 +147,7 @@ function runStop(payload) {
 
 test("hook smoke: compact-tier stop blocks once with the handover instructions; the continuation stop passes", () => {
   const dir = sandboxProject();
-  writeRollout("ah-h1", 140_000);
+  writeRollout("ah-h1", 165_000);
   const payload = { session_id: "ah-h1", cwd: dir, stop_hook_active: false };
   const first = JSON.parse(runStop(payload));
   assert.equal(first.decision, "block", "the first compact-tier stop is blocked");
@@ -170,7 +170,7 @@ test("hook smoke: sub-threshold, dispatch-off and pointer-pending stops pass sil
   const offDir = sandboxProject(JSON.stringify({
     v: 1, lang: { conversation: "en", comments: "en", docs: "en" }, dispatch: "off",
   }));
-  writeRollout("ah-h3", 140_000);
+  writeRollout("ah-h3", 165_000);
   assert.equal(runStop({ session_id: "ah-h3", cwd: offDir }), "", "dispatch off → silent");
 
   const ptrDir = sandboxProject();
@@ -183,7 +183,7 @@ test("hook smoke: sub-threshold, dispatch-off and pointer-pending stops pass sil
 
 test("hook smoke: shell sessions and unparseable input never block", () => {
   const dir = sandboxProject();
-  writeRollout("sess_subagent_ah-h5", 140_000);
+  writeRollout("sess_subagent_ah-h5", 165_000);
   assert.equal(runStop({ session_id: "sess_subagent_ah-h5", cwd: dir }), "", "a shell's stop must never be blocked");
   const raw = spawnSync(process.execPath, [path.join(PLUGIN_ROOT, "hooks", "stop.mjs")], {
     input: "{not json", encoding: "utf8", env: { ...process.env, ZCODE_ROLLOUT_DIR: rolloutDir },

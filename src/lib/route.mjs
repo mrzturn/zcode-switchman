@@ -15,7 +15,7 @@
  * surfaces can never drift. When the caller passes an estimateContext result
  * (src/lib/context.mjs), [ROUTE] carries live numbers and a usage-tier
  * instruction — tiers are absolute est against the contextTiers boundaries
- * (default 50k/90k/130k): free keeps trivia hands-on, frugal allows ≤3k
+ * (default 80k/120k/150k): free keeps trivia hands-on, frugal allows ≤3k
  * outputs only, tight allows <1k and starts handover refresh, compact asks
  * for handover-then-compact. Without an estimate it degrades to the
  * canonical static text verbatim (in strict mode the dynamic block alone

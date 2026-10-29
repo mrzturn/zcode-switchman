@@ -18,11 +18,11 @@
  *   contextCacheReadFactor: number → cacheReadTokens weight, default 0
  *   contextTiers: [a,b,c]   → three ascending absolute-token boundaries for
  *                             the free/frugal/tight/compact tiers, default
- *                             [50_000, 90_000, 130_000] (tiers are absolute
+ *                             [80_000, 120_000, 150_000] (tiers are absolute
  *                             k, not percentages)
  *   contextWarnAt: number   → PreToolUse context-guard threshold; default
  *                             derives from the effective tiers as the start of
- *                             the tier before compact (tiers[1], 90k with the
+ *                             the tier before compact (tiers[1], 120k with the
  *                             default tiers), an explicit positive value
  *                             overrides (one advisory per user turn above it;
  *                             in strict dispatch mode the first guarded call
@@ -51,7 +51,7 @@ import { LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE } from "./lang.mjs";
 export const CONTEXT_ESTIMATE_OFF = "off";
 export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 export const DEFAULT_CACHE_READ_FACTOR = 0;
-export const DEFAULT_CONTEXT_TIERS = Object.freeze([50_000, 90_000, 130_000]);
+export const DEFAULT_CONTEXT_TIERS = Object.freeze([80_000, 120_000, 150_000]);
 // Shell (subagent) context-guard boundaries — lower than the main-session
 // tiers: a shell must hand back while the main session still has room.
 export const DEFAULT_SHELL_TIERS = Object.freeze([30_000, 50_000, 70_000]);
