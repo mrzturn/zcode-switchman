@@ -180,6 +180,16 @@ test("renderDashboardHtml: null/garbage/empty data → the valid empty-state pan
   }
 });
 
+// [2026-10-30]-[the host sandbox alias only handshakes when the page touches window.zcode; a script-less page always burns the 15s ui/initialize timer and dies as "handshake timed out"]-[the static ping is pinned here so a template edit cannot silently drop the handshake, and the one-tag count keeps dynamic values out of script scope]
+test("renderDashboardHtml: ships the alias handshake ping as the only script tag", () => {
+  for (const data of [{}, { ledger: [], context: null, breaker: [], settings: {} }, null]) {
+    const html = renderDashboardHtml(data);
+    const scripts = html.match(/<script\b[^>]*>[\s\S]*?<\/script>/g) ?? [];
+    assert.equal(scripts.length, 1, `exactly one script tag for ${JSON.stringify(data)}`);
+    assert.equal(scripts[0], "<script>window.zcode?.ready;</script>", "the script is the static alias ping");
+  }
+});
+
 test("collectFleetData: assembles all four sections; every section fails independently", () => {
   const stateDir = tmp("state-fleet");
   process.env.ZCODE_SWITCHMAN_STATE = stateDir;

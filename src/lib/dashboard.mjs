@@ -249,6 +249,16 @@ function settingsSection(settings) {
 }
 
 /**
+ * [2026-10-30]-[a script-less page never touches window.zcode, and the host's sandbox alias only
+ * handshakes lazily on first member access (host aliasRuntime.ts get trap)]-[without this ping the
+ * host's 15s ui/initialize timer expires and the panel is replaced by "handshake timed out"];
+ * property access alone triggers the handshake (the alias's own get trap catches rejections), so the
+ * line stays a static string: still no dynamic value inside a script tag, the `</script>`-escape
+ * class remains absent by construction.
+ */
+const ALIAS_HANDSHAKE_PING = "<script>window.zcode?.ready;</script>";
+
+/**
  * Render the whole panel as one HTML string. Pure and total: null, garbage
  * and empty data all render the valid empty-state panel (fail-open — the
  * MCP resources/read handler must always have HTML to return).
@@ -294,6 +304,7 @@ ${section("ledger", "Dispatch ledger", ledgerSection(d.ledger, d.ledgerTotal))}
 ${section("context", "Context level", contextSection(d.context))}
 ${section("breaker", "Breaker", breakerSection(d.breaker))}
 ${section("settings", "Settings summary", settingsSection(d.settings))}
+${ALIAS_HANDSHAKE_PING}
 </body>
 </html>
 `;

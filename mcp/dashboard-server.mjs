@@ -26,7 +26,7 @@ import { collectFleetData, renderDashboardHtml, DASHBOARD_RESOURCE_URI } from ".
 
 const SERVER_NAME = "zcode-switchman-dashboard";
 // Kept in lockstep with plugin.json / marketplace.json (both bumped by hand).
-const SERVER_VERSION = "0.20.0";
+const SERVER_VERSION = "0.20.1";
 
 function writeMessage(obj) {
   try {
