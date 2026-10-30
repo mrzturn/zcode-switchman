@@ -29,7 +29,8 @@ not fix anything without asking; print a summary table at the end.
 6. **Hooks smoke**: pipe fake payloads into the hooks with
    `ZCODE_PLUGIN_ROOT=${ZCODE_PLUGIN_ROOT}`:
    - a PreToolUse dispatch naming a non-shell agent (e.g. `general-purpose`)
-     must pass silently;
+     must pass — since 0.17.1 the default foreign-agent mode ("nudge") adds
+     a one-line [Dispatch] advisory; that advisory is ok, a *deny* is not;
    - a PreToolUse dispatch of a breaker-down shell must be denied with the
      lane to use instead (trip it by writing a `down_agents` entry into
      `$ZCODE_SWITCHMAN_STATE/routing.json`, then remove it afterwards).
