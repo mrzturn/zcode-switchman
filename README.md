@@ -130,7 +130,17 @@ src/lib/            shared core: shells / breaker / provision / handover / lang 
                     into the shell frontmatter at session start and every turn;
                     matrix on + .switchman/shells.json) /
                     imagerelay (opt-in image-Read deny-steer toward the vision
-                    shell; imageRelay on)
+                    shell; imageRelay on) /
+                    dashboard (fleet-dashboard data assembly + HTML renderer:
+                    newest dispatch-ledger records, the LATEST session's live
+                    estimate, breaker downs, raw .switchman/settings.json
+                    switches; every section fail-open)
+mcp/                dashboard-server: zero-dependency stdio MCP server serving the
+                    fleet dashboard as ONE server-rendered HTML resource
+                    (initialize + resources/read only — no model-visible tools,
+                    so the panel costs the conversation zero prompt tokens;
+                    reopen the panel to refresh; wired via ui.surfaces in
+                    .zcode-plugin/plugin.json)
 hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse
                     (lang-capture + dispatch-ledger) · PostToolUseFailure · Stop
 commands/           setup · doctor · handover · lang
@@ -153,7 +163,7 @@ Skim these before changing code — all are test-locked:
 - [x] Full router: matrix-driven shell rebinding (0.19.0) — the six shell files never change names; a user-owned matrix file is written into their frontmatter at session start and every turn, and turn-granular rebinding rides the host's per-turn agent refresh
 - [x] Image relay for non-vision main models (0.19.0) — opt-in deny-steer toward switchman-vision
 - [ ] Probe matrix integration (optional, opt-in) — the dispatch ledger already records real per-dispatch usage/timing, so the matrix can be scored from observed traffic instead of active probes
-- [ ] Fleet dashboard: an MCP Apps panel (`ui.surfaces`) over the dispatch ledger + live estimate — the one UI surface the platform grants plugins
+- [x] Fleet dashboard: an MCP Apps panel (`ui.surfaces`) over the dispatch ledger + live estimate (0.20.0) — zero model-visible tools: all panel data is server-rendered into one HTML resource (dispatch ledger / latest-session context / breaker / settings summary), so the panel costs the conversation exactly zero prompt tokens; reopen to refresh
 - [ ] Per-shell userConfig knobs — platform fact (verified in the ZCode source, 2026-10): plugin `userConfig` values reach MCP server configs and the settings UI only; hook processes cannot read them (the hook variable-expansion whitelist is fixed: `ZCODE_PLUGIN_ROOT`/`_DATA`/session ids). The switches therefore stay in `.switchman/settings.json` until an MCP surface exists to host them.
 
 Ideas welcome — open an issue.

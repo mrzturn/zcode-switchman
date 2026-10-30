@@ -124,7 +124,15 @@ src/lib/            共享核心：shells / breaker / provision / handover / lan
                     matrix（可选的矩阵驱动壳重绑：会话启动与每轮把档位钉进壳
                     frontmatter；matrix on + .switchman/shells.json）/
                     imagerelay（可选的图片 Read 拒绝附改派，引向 vision 壳；
-                    imageRelay on）
+                    imageRelay on）/
+                    dashboard（编队仪表盘的数据装配 + HTML 渲染：派发台账最近
+                    记录、最新会话的实时水位、breaker 熔断、.switchman/settings.json
+                    原样开关；每块独立 fail-open）
+mcp/                dashboard-server：零依赖 stdio MCP server，把编队仪表盘作为
+                    唯一一份服务端渲染的 HTML 资源交付（只实现 initialize +
+                    resources/read——不声明任何 model 可见工具，面板对会话上下文
+                    的 token 成本严格为零；重开面板即刷新；经
+                    .zcode-plugin/plugin.json 的 ui.surfaces 接线）
 hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse
                     （lang-capture + dispatch-ledger）· PostToolUseFailure · Stop
 commands/           setup · doctor · handover · lang
@@ -147,7 +155,7 @@ test/               契约测试（node --test test/*.test.mjs）
 - [x] 完整版路由器：矩阵驱动的壳重绑（0.19.0）——六个壳文件永不改名；用户私有矩阵文件由 hook 在会话启动与每轮写进 frontmatter，轮粒度重绑搭宿主每轮刷新的便车
 - [x] 无视觉主模型的图像中继（0.19.0）——可选的拒绝附改派，引向 switchman-vision
 - [ ] 探测矩阵集成（可选，需显式开启）——派发台账已在记录真实的每派发用量/时延，矩阵可以直接按观测流量打分，不必主动探测
-- [ ] 编队仪表盘：架在派发台账 + 实时水位上的 MCP Apps 面板（`ui.surfaces`）——平台给插件的唯一自定义 UI 面
+- [x] 编队仪表盘：架在派发台账 + 实时水位上的 MCP Apps 面板（`ui.surfaces`）（0.20.0）——不声明任何 model 可见工具：面板数据全部服务端渲染进一份 HTML 资源（派发台账 / 最新会话水位 / breaker / 设置摘要），对会话上下文的 token 成本严格为零；重开即刷新
 - [ ] 逐壳 userConfig 开关——平台事实（2026-10 于 ZCode 源码验证）：插件 `userConfig` 的值只进 MCP server 配置和设置 UI；hook 进程读不到（hook 变量展开白名单固定：`ZCODE_PLUGIN_ROOT`/`_DATA`/会话 id）。因此开关继续放 `.switchman/settings.json`，等有 MCP 面板再承载。
 
 有想法欢迎开 issue。

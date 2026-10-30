@@ -122,6 +122,31 @@ export function parseDispatchRecord(toolInput, toolResponse, { sessionId = "", p
   }
 }
 
+// [2026-10-30]-[read side for the dispatch ledger (fleet dashboard)]-[the ledger was write-only bookkeeping; the MCP dashboard panel renders dispatch history, and the read reuses the same capped file so no new store is needed]
+/**
+ * Read every parseable ledger record, oldest first. Bounded by construction:
+ * the writer caps the file (DISPATCH_LEDGER_MAX_BYTES rewrite down to
+ * KEEP_LINES), so a full read can never outgrow the cap. Fail-open: a missing
+ * or unreadable file → [], corrupt lines are skipped one by one. Read-only —
+ * this never rewrites or re-caps the file.
+ */
+export function readDispatchRecords() {
+  try {
+    const text = fs.readFileSync(statePaths.dispatchLedger(), "utf8");
+    const out = [];
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const v = JSON.parse(line);
+        if (v && typeof v === "object" && !Array.isArray(v)) out.push(v);
+      } catch { /* skip the corrupt line, keep the rest */ }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Append one record as a JSONL line to the state dir's dispatches.jsonl and
  * enforce the size cap (rewrite down to the last KEEP_LINES lines once the
