@@ -45,7 +45,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeJsonAtomic, readJson, nowIso } from "./state.mjs";
+import { writeJsonAtomic, readJson, nowIso, stateDir } from "./state.mjs";
 import { LANG_SETTINGS_DIRNAME, LANG_SETTINGS_FILE } from "./lang.mjs";
 
 export const CONTEXT_ESTIMATE_OFF = "off";
@@ -75,6 +75,20 @@ const ROLLOUT_WINDOW_BYTES = 64 * 1024;
 // first 64KB window (real sessions: ~100KB+ records), so the tail window
 // doubles until the last complete line fits — bounded so cost stays O(1).
 const ROLLOUT_WINDOW_MAX_BYTES = 4 * 1024 * 1024;
+// [2026-10-30]-[giant-record fallback + size-keyed estimate cache]-[very long sessions serialize one model_io record at tens of MB (the request embeds the whole conversation) — past the 4MB window cap no complete record parses and the estimate went silently null, blinding the whole compact tier; the usage blob sits near the record tail, so a bounded signature scan recovers it without parsing megabytes]
+// Giant-record fallback: scan the last tail for the normalized usage blob
+// ("usage":{"inputTokens":...) instead of parsing a record that can be tens
+// of MB. querySource lives at the record START (tens of MB back, out of
+// reach) — an out-of-reach source is accepted (giant records are main/subagent
+// turns; auxiliary requests like session_title are small and always parsed by
+// the exact path above), a found-and-forbidden source rejects.
+const USAGE_SCAN_TAIL_BYTES = 2 * 1024 * 1024;
+const USAGE_BLOB_MAX_BYTES = 4096;
+// Size-keyed cache: the rollout file only grows when a model request
+// completes, so within a turn every hook call hits the cache and the heavy
+// tail read happens at most once per model response.
+const ESTIMATE_CACHE_FILE = "estimate-cache.json";
+const ESTIMATE_CACHE_MAX_ENTRIES = 32;
 
 const DEFAULT_SETTINGS = Object.freeze({
   disabled: false,
@@ -193,6 +207,58 @@ function usageFromLine(line, acceptSubagent = false) {
 }
 
 /**
+ * Giant-record fallback: recover the usage blob from the raw tail text when
+ * the last record is too big for the window. Finds the LAST normalized
+ * usage blob (`"usage":{"inputTokens":...`) via a bounded brace match, and
+ * applies the querySource rule to whatever source is visible inside the
+ * scanned tail (an out-of-reach source — the giant record's own, tens of MB
+ * back — is accepted; see the constant's comment). Returns the same shape
+ * as usageFromLine, or null.
+ */
+function usageFromTailSignature(tailText, acceptSubagent = false) {
+  try {
+    const marker = '"usage":{"';
+    let idx = tailText.lastIndexOf(marker);
+    while (idx >= 0) {
+      const blobEnd = tailText.indexOf("}", idx + marker.length - 1);
+      if (blobEnd >= 0 && blobEnd - idx <= USAGE_BLOB_MAX_BYTES) {
+        let blob;
+        try { blob = JSON.parse(tailText.slice(idx + '"usage":'.length, blobEnd + 1)); } catch { blob = null; }
+        if (blob && typeof blob.inputTokens === "number" && Number.isFinite(blob.inputTokens) && blob.inputTokens >= 0) {
+          const srcMatch = /"querySource":"([^"]+)"/.exec(tailText.slice(0, idx));
+          const source = srcMatch ? srcMatch[1] : null;
+          const allowed = source === null || source === "main_turn" ||
+            (acceptSubagent && source === "subagent");
+          if (allowed) {
+            const num = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
+            return {
+              inputTokens: blob.inputTokens,
+              outputTokens: num(blob.outputTokens),
+              totalTokens: num(blob.totalTokens),
+              cacheReadTokens: num(blob.cacheReadTokens),
+              cacheWriteTokens: num(blob.cacheWriteTokens),
+            };
+          }
+          return null; // a visible forbidden source owns this usage — do not guess further back
+        }
+      }
+      idx = tailText.lastIndexOf(marker, idx - 1); // try the previous blob
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the raw tail of the rollout file (bounded, no parsing). */
+function readRawTail(fd, size, bytes) {
+  const window = Math.min(bytes, size);
+  const buf = Buffer.alloc(window);
+  const read = fs.readSync(fd, buf, 0, window, size - window);
+  return buf.toString("utf8", 0, read);
+}
+
+/**
  * Tail-read the session's rollout file as raw text through a bounded window
  * (windowBytes tail, clamped to the 4MB cap; 64KB by default). Consumers that
  * only need fields serialized near a record's end (e.g. request.toolNames for
@@ -245,19 +311,89 @@ export function readLastRolloutUsage(sessionId, rolloutDir) {
         const start = size - window;
         const buf = Buffer.alloc(window);
         const read = fs.readSync(fd, buf, 0, window, start);
-        const lines = buf.toString("utf8", 0, read).split("\n");
-        if (start > 0) lines.shift(); // head may be a partial line
+        const windowText = buf.toString("utf8", 0, read);
+        const rawLines = windowText.split("\n");
+        // byte offset of each raw line inside windowText, computed BEFORE the
+        // head-partial shift so line indexes and offsets stay aligned
+        const offsets = [];
+        let acc = 0;
+        for (const l of rawLines) { offsets.push(acc); acc += Buffer.byteLength(l, "utf8") + 1; }
+        const lines = rawLines.slice(start > 0 ? 1 : 0); // head may be a partial line
+        const lineOffsets = offsets.slice(start > 0 ? 1 : 0);
+        let lastCompleteEnd = 0; // windowText up to here holds only the partial giant (if any)
+        let usage = null;
         for (let i = lines.length - 1; i >= 0; i -= 1) {
           const line = lines[i].trim();
           if (!line) continue;
-          const usage = usageFromLine(line, acceptSubagent);
-          if (usage) return usage;
+          let rec = null;
+          try { rec = JSON.parse(line); } catch { rec = null; }
+          if (rec !== null) {
+            // a complete record (accepted or querySource-rejected): the
+            // signature fallback must not cross before its start
+            lastCompleteEnd = Math.max(lastCompleteEnd, lineOffsets[i]);
+            usage = usageFromLine(line, acceptSubagent);
+            if (usage) return usage;
+          }
         }
-        if (window >= size || window >= ROLLOUT_WINDOW_MAX_BYTES) return null;
+        if (window >= size || window >= ROLLOUT_WINDOW_MAX_BYTES) {
+          // No usable complete record fits the window: the last record is a
+          // giant (very long sessions serialize the whole conversation into
+          // one model_io line). Recover the usage blob from the giant's tail
+          // region — everything before the last complete record's start (or
+          // the whole window when none completed). Parsing the tens-of-MB
+          // line itself would blow the hook time budget.
+          const region = lastCompleteEnd > 0 ? windowText.slice(0, lastCompleteEnd) : windowText;
+          return usageFromTailSignature(region, acceptSubagent);
+        }
       }
     } finally {
       fs.closeSync(fd);
     }
+  } catch {
+    return null;
+  }
+}
+
+// ── size-keyed estimate cache ──
+// The rollout file only grows when a model request completes, so within a
+// turn (many PreToolUse calls, the Stop hook) the file size is stable and
+// every call after the first hits this cache — the heavy tail read happens
+// at most once per model response. Keyed by sessionId with the file size as
+// the validity check; a grown file recomputes, an unchanged file is a hit.
+function readEstimateCache(sessionId, size, mtimeMs) {
+  try {
+    const all = readJson(path.join(stateDir(), ESTIMATE_CACHE_FILE));
+    const entry = all && typeof all === "object" ? all[sessionId] : null;
+    if (entry && entry.size === size && entry.mtimeMs === mtimeMs && entry.usage &&
+        typeof entry.usage.inputTokens === "number") {
+      return entry.usage;
+    }
+  } catch { /* fail-open */ }
+  return null;
+}
+
+function writeEstimateCache(sessionId, size, mtimeMs, usage) {
+  try {
+    if (!sessionId || !usage) return;
+    const p = path.join(stateDir(), ESTIMATE_CACHE_FILE);
+    const all = readJson(p) && typeof readJson(p) === "object" ? readJson(p) : {};
+    all[sessionId] = { size, mtimeMs, usage, at: nowIso() };
+    const keys = Object.keys(all);
+    if (keys.length > ESTIMATE_CACHE_MAX_ENTRIES) {
+      for (const k of keys.slice(0, keys.length - ESTIMATE_CACHE_MAX_ENTRIES)) delete all[k];
+    }
+    writeJsonAtomic(p, all);
+  } catch { /* fail-open */ }
+}
+
+function rolloutFileStat(sessionId, rolloutDir) {
+  try {
+    if (typeof sessionId !== "string" || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+    const dir = rolloutDir ||
+      process.env.ZCODE_ROLLOUT_DIR ||
+      path.join(os.homedir(), ROLLOUT_DIRNAME);
+    const st = fs.statSync(path.join(dir, `${ROLLOUT_FILE_PREFIX}${sessionId}.jsonl`));
+    return { size: st.size, mtimeMs: st.mtimeMs };
   } catch {
     return null;
   }
@@ -268,13 +404,19 @@ export function readLastRolloutUsage(sessionId, rolloutDir) {
  * est = inputTokens + cacheWriteTokens + cacheReadTokens * cacheReadFactor;
  * tier comes from absolute est vs contextTiers (not from pct — pct is
  * display-only). Null when the feature is off, no session id, or no usable
- * usage (fail-open).
+ * usage (fail-open). The rollout read is cached per (sessionId, file size):
+ * within a turn only the first call pays it.
  */
 export function estimateContext(sessionId, projectDir) {
   try {
     const cfg = loadContextSettings(projectDir);
     if (cfg.disabled) return null;
-    const usage = readLastRolloutUsage(sessionId);
+    const stat = rolloutFileStat(sessionId);
+    let usage = stat ? readEstimateCache(sessionId, stat.size, stat.mtimeMs) : null;
+    if (!usage) {
+      usage = readLastRolloutUsage(sessionId);
+      if (usage && stat) writeEstimateCache(sessionId, stat.size, stat.mtimeMs, usage);
+    }
     if (!usage) return null;
     const est = Math.max(0, Math.round(
       usage.inputTokens + usage.cacheWriteTokens + usage.cacheReadTokens * cfg.cacheReadFactor,

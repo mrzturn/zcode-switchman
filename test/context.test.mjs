@@ -798,3 +798,61 @@ test("hook smoke: strict mode never reaches shell sessions — a sess_subagent_*
 
   fs.rmSync(projStrict, { recursive: true, force: true });
 });
+
+// [2026-10-30]-[pin the giant-record fallback and the size-keyed estimate cache]-[very long sessions serialize one model_io record at tens of MB — past the 4MB window cap the estimate went silently null and the whole compact tier went blind (observed live: 382k-token session, static [ROUTE] text)]
+test("readLastRolloutUsage: a giant record (> 4MB window cap) still yields its usage via the tail signature scan", () => {
+  // one line > the 4MB cap: padding inside the request payload, usage at the end
+  const pad = "x".repeat(5 * 1024 * 1024);
+  const giant = JSON.stringify({
+    type: "model_io", querySource: "main_turn",
+    request: { messages: [{ role: "user", content: pad }] },
+    response: { usage: { inputTokens: 381924, outputTokens: 1117, cacheReadTokens: 380288, cacheWriteTokens: 0 } },
+  });
+  writeRollout("giant-record", giant + "\n");
+  const usage = readLastRolloutUsage("giant-record", fixtureDir);
+  assert.deepEqual(usage, {
+    inputTokens: 381924, outputTokens: 1117, totalTokens: 0, cacheReadTokens: 380288, cacheWriteTokens: 0,
+  });
+});
+
+test("readLastRolloutUsage: giant main_turn record followed by a small auxiliary record → the auxiliary is skipped, the giant's usage still wins", () => {
+  const pad = "x".repeat(5 * 1024 * 1024);
+  const giant = JSON.stringify({
+    type: "model_io", querySource: "main_turn",
+    request: { messages: [{ role: "user", content: pad }] },
+    response: { usage: { inputTokens: 381924, outputTokens: 1117, cacheReadTokens: 380288, cacheWriteTokens: 0 } },
+  });
+  const aux = JSON.stringify({
+    type: "model_io", querySource: "session_title",
+    response: { usage: { inputTokens: 257, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  });
+  writeRollout("giant-then-aux", giant + "\n" + aux + "\n");
+  const usage = readLastRolloutUsage("giant-then-aux", fixtureDir);
+  assert.equal(usage.inputTokens, 381924, "the tiny auxiliary usage is never mistaken for the session estimate");
+});
+
+test("readLastRolloutUsage: giant shell-session record (querySource subagent far out of reach) estimates via the fallback", () => {
+  const pad = "x".repeat(5 * 1024 * 1024);
+  const giant = JSON.stringify({
+    type: "model_io", querySource: "subagent",
+    request: { messages: [{ role: "user", content: pad }] },
+    response: { usage: { inputTokens: 42_000, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  });
+  writeRollout("sess_subagent_giant", giant + "\n");
+  const usage = readLastRolloutUsage("sess_subagent_giant", fixtureDir);
+  assert.equal(usage.inputTokens, 42_000, "out-of-reach source accepted for shell sessions");
+});
+
+test("estimate cache: same file size → cached usage returned; grown file → recomputed", () => {
+  writeRollout("cache-probe", rec({ inputTokens: 50_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const first = estimateContext("cache-probe", sandboxProject());
+  assert.equal(first.est, 50_000);
+  // same size, overwritten content: the cache consciously serves size-keyed
+  // freshness (the file only grows in production) — same size = same turn = hit
+  const second = estimateContext("cache-probe", sandboxProject());
+  assert.equal(second.est, 50_000, "size unchanged → cache hit");
+  // grown file → recompute
+  writeRollout("cache-probe", rec({ inputTokens: 60_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }) + "\n" + rec({ inputTokens: 90_000, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }));
+  const third = estimateContext("cache-probe", sandboxProject());
+  assert.equal(third.est, 90_000, "grown file → fresh read");
+});
