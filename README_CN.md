@@ -61,7 +61,7 @@
 ## 快速上手
 
 1. **装插件，重开会话。** 启动横幅的 `[Shells]` 行列出六壳，它们已被装配进 `~/.zcode/agents/`（Settings → Subagents 可见）。若当前会话早于装配，下一个会话就能看到。
-2. **（可选）钉模型。** 默认 `model: inherit` 已经够用；想让某档跑固定模型，用 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` 行。宿主在**每个父轮开始时**都会重读 agent 定义，改完下一条消息即生效——运行中的子代理仍用它启动时的快照，不受影响；重开会话也能在 `[Binding]` 横幅行看到新绑定。
+2. **（可选）钉模型。** 默认 `model: inherit` 已经够用；想让某档跑固定模型，用 `/switchman-setup` 对话式改绑，或手改 `~/.zcode/agents/switchman-<档位>.md` 的 `model:` 行。宿主在**每个父轮开始时**都会重读 agent 定义，改完下一条消息即生效——运行中的子代理仍用它启动时的快照，不受影响；重开会话也能在 `[Binding]` 横幅行看到新绑定。打算频繁改的按档钉死，用下面可选的**矩阵**模式变成一份数据文件。
 3. **正常干活。** 不用记任何新命令：主模型按 `switchman-routing` 技能挑档派发（每轮 `[ROUTE]` token 账铁律兜底），你也可以直接说「这活派给 hard」。委派一律走 DELEGATION_V1 模板；连续失败自动熔断。
 4. **心里没底就体检。** `/switchman-doctor`，七项自检。
 5. **会话跑长了就交接。** 两条路、一个流程：你自己跑 `/switchman-handover`，或者让会话自己来——到达 compact 档（默认 150k）后，模型第一次试图收尾时 Stop hook 会阻断一次，让它自己把版本化交接文档和指针写好。无论哪条路，指针都会被自动拾取：你按一次 `/compact`，交接文档全文注入新上下文，从 Next steps 无缝接着干（`handover.01.md`、`handover.02.md`…每次执行都生成新版本，从不动旧文件）。（超过 16KB 的文档降级为指针行；fork 备份由你在客户端会话菜单自行操作。）
@@ -86,6 +86,8 @@ state 目录默认 `~/.zcode/state/`（可用 `ZCODE_SWITCHMAN_STATE` 覆盖）�
 - **Stop 驱动的自动交接**——交接不再依赖用户记得跑 `/switchman-handover`：到达 compact 档后，模型第一次试图收尾时，Stop hook 阻断一次（`decision: "block"`，宿主连续续跑上限 3 次），阻断附带的上下文指示它按插件自己的 `commands/switchman-handover.md` 写好版本化交接文档 + 指针再结束回合。每会话一次（`.switchman/stop-handover.json`，独立标志文件）；交接指针已存在时跳过（用户已备好交接，无需二次驱动）；壳会话与 `"dispatch": "off"` / `"contextEstimate": "off"` 下静默；处处 fail-open——驱动器坏了绝不困住会话收尾。
 - **逐轮交接拾取**——SessionStart hook 会在会话启动时注入待交接文档，但它的闩锁是一次性的，会话内 `/compact` 后不会再触发；因此 UserPromptSubmit hook 每轮检查指针，且只在上下文真实缩水后交付：指针记录写入时的水位（`est`），实时水位远低于它（确实压缩过——`HANDOVER_COMPACT_MARGIN`，30k）才注入并消费指针（文档小则全文、过大则路径行）。没压缩就继续干的会话，指针原封不动留给未来真正的新上下文；无 `est` 的旧式/手写指针按 fail-open 交付。
 - **派发台账**——每条 Agent/Task 结果记成 state 目录 `dispatches.jsonl` 的一行 JSONL（档位归类、结果、后台启动句柄，以及 Agent 工具结果自带的用量合计：token 数、工具调用数、耗时）——零额外模型流量的派发记账；严格静默（记账绝不给派发结果附加任何内容），文件 512KB 封顶。失败记录仍归熔断的 PostToolUseFailure hook 管。
+- **矩阵驱动重绑（可选）**——完整版路由器在 ZCode 上的唯一合法形态：`.switchman/settings.json` 顶层 `"matrix": "on"` + 用户私有的矩阵文件 `.switchman/shells.json`（`{"lanes": {"main": {"model": "provider/model", "thoughtLevel": "high"}}}`），插件把已定义档位的 `model:`/`thoughtLevel:` 钉进壳的 frontmatter——会话启动时（装配之后，`[Matrix]` 横幅行汇报）和每轮用户输入各应用一次，而宿主每个父轮都重读 agent 定义，所以**改矩阵下一条消息即生效**：轮粒度的模型轮换，调用粒度不合法、文件粒度合法。矩阵开启时只对它定义了的档位拥有这两行；未定义的档位原样不动，删掉条目也不回置（避免意外重置）。矩阵关闭 → 插件绝不碰这两行，与所有权契约始终承诺的完全一致。
+- **图像中继（可选）**——给文本-only 主模型用：`"imageRelay": "on"` 后，对光栅图片的 Read 被拒绝并附上正路——把路径经 DELEGATION_V1 派给 switchman-vision、引用它的结论（平台只允许 hook 给工具结果附加内容、绝不许改写，所以拒绝附改派就是 ZCode 合法形态的中继）。默认关闭——有视觉的主模型绝不该被引离自己的读取；vision 壳自己的图片读取永远放行。
 - **派发优先纪律（token 账）**——每轮注入 `[ROUTE]` 铁律：动手前先用一句话权衡自己做还是派出去（自己做花主上下文且持续膨胀、压缩丢细节；派发花一个全新壳上下文，主上下文只付委派单和结论），并把当前上下文长度纳入考虑——越长越倾向派发；琐事（单行修改、看一两个已知文件、`.switchman/` 记账、协调编队）留给自己。开场横幅同步加 `[Rule]` 行。`.switchman/settings.json` 顶层 `"dispatch": "off"` 可关；`"dispatch": "strict"` 保留两行并在动态 `[ROUTE]` 块尾追加 strict 语义——超过上下文守卫阈值后，受守卫的自用工具调用每轮被拒一次（附改派指引），重新发起同一调用即可继续。0.7.0 起 `[ROUTE]` 行携带实时数字：用量估算自 CLI rollout 日志尾部（`~/.zcode/cli/rollout/model-io-<session>.jsonl`；`inputTokens` 即全量提示口径、已含缓存命中——已用面板数据确认；session_title 之类的辅助请求会被跳过），分档按绝对用量收紧——free（<80k）琐事留给自己 / frugal（80–120k）只许 ≤3k 产物自己做（单文件小修、记账、协调）/ tight（120–150k）只许 <1k 产物、120k 起先刷新交接文档 / compact（≥150k）先写好交接文档，再 `/compact` 或开新会话。开场横幅的 `[Context]` 行显示同一数字与档位；PreToolUse 上下文守卫对 Write / Edit / MultiEdit / NotebookEdit / Read / Glob / Grep 在超过 `contextWarnAt`（默认 120k，取 compact 前一档起点、随 `contextTiers` 联动；显式设置优先）时触发——默认 fleet 档注入每轮一次的非阻塞提醒，strict 档改为当轮第一条受守卫调用直接拒绝（重发同一调用即放行），`"dispatch": "off"` 则整体跳过守卫。总开关：`"contextEstimate": "off"` 全部关闭，`"contextWindow"` 设分母（默认 1M），`"contextCacheReadFactor"` 校准缓存读取（默认 0），`"contextTiers"` 覆盖三档边界（默认 `[80000, 120000, 150000]`）。
 - **外来 agent 拦截面**——路由规则在派发时刻的兜底：当 Agent/Task 派发的 `subagent_type` 精确命中内置通用 agent（`Explore` 或 `general-purpose`，忽略大小写）——实证观察到的漂移：模型一边引用 `[ROUTE]` 一边仍把探索任务派给内置 Explore、从不加载路由技能——PreToolUse 钩子在派发时刻把它引回编队。`.switchman/settings.json` 顶层 `"foreignAgent"`：`"nudge"`（默认，缺省/非法值均兜底到此）对每次命中的派发注入一行非阻塞提示，指名等价档（Explore → economy「bulk light retrieval/triage」，general-purpose → main「day-to-day implementation」）与 DELEGATION_V1——不节流，每个派发决策点都该听到；`"strict"` 每轮首次命中的外来派发拒绝一次——拒绝文案含等价档与 DELEGATION_V1，重发同一调用即放行，当轮后续外来派发静默放行；`"off"` 完全静默。专用内置 agent（`documents:visual-judge` 等）、外来编队、无 `subagent_type` 的派发与所有 `switchman-*` 壳一律放行，且项目设 `"dispatch": "off"` 时整个门休眠。strict 标志存独立状态文件（`.switchman/foreign-agent-deny.json`），与上下文守卫互不干扰，每轮随用户输入重置。
 - **壳上下文守卫与 HANDOFF 接力**——壳会话在工具调用时按绝对 token 水位收到分档注入（`contextShellTiers`，默认 `[30000, 50000, 70000]`，每档每壳只注入一次）：30k 收紧读法（精准 grep、只引必要段落）/ 50k 不再开启新阶段，完成手头单元后交接 / 70k 立即交接、进度标 partial。rw 壳先落盘版本化 handover（`.switchman/<date>/<lane>-shell/handover/`），ro 壳在最终消息内嵌紧凑交接块，交接结果一律以 `HANDOFF: <path|inline> · progress: n/m · next: …` 标记收尾——`switchman-routing` 技能的接力规则让主会话读它并按 Next steps 派新鲜壳续作（已否决路线随单携带，档位可自由换道）。`"contextEstimate": "off"` 连同此守卫一起关闭。
@@ -118,7 +120,11 @@ src/lib/            共享核心：shells / breaker / provision / handover / lan
                     引向等价档；foreignAgent nudge/strict/off 开关）
                     autohandover（Stop hook 的 compact 档交接驱动；每会话一次、独立标志文件）
                     ledger（派发记账：state 目录每条 Agent/Task 结果一行 JSONL，
-                    封顶、严格静默）
+                    封顶、严格静默）/
+                    matrix（可选的矩阵驱动壳重绑：会话启动与每轮把档位钉进壳
+                    frontmatter；matrix on + .switchman/shells.json）/
+                    imagerelay（可选的图片 Read 拒绝附改派，引向 vision 壳；
+                    imageRelay on）
 hooks/              SessionStart · UserPromptSubmit · PreToolUse · PostToolUse
                     （lang-capture + dispatch-ledger）· PostToolUseFailure · Stop
 commands/           setup · doctor · handover · lang
@@ -129,7 +135,7 @@ test/               契约测试（node --test test/*.test.mjs）
 改代码前扫一眼这几条，都有测试锁定：
 
 1. 壳名 `switchman-<档位>` 是稳定标识，小版本绝不改。
-2. `model:` 与 `thoughtLevel:` 行归用户，壳正文归模板；装配同步永不改写、不丢弃、不注入这两行（仅创建时内置 `model: inherit`）。宿主每个父轮都会重读 agent 定义，改动下一条消息即生效，无需重开会话。
+2. `model:` 与 `thoughtLevel:` 行归用户，壳正文归模板；装配同步永不改写、不丢弃、不注入这两行（仅创建时内置 `model: inherit`）。唯一例外是开启后的可选矩阵：它对自己定义了的档位拥有这两行（src/lib/matrix.mjs）。宿主每个父轮都会重读 agent 定义，改动下一条消息即生效，无需重开会话。
 3. deny 必附言：每次拦截都说明该改派哪个档位。
 4. 门禁处处 fail-open：坏了写 stderr、放行，不挡活。
 5. `.switchman/handover.json` 指针由 `/switchman-handover`（或 Stop 驱动的自动交接）写入，一次性消费——会话启动归 SessionStart hook；会话内则由逐轮的 UserPromptSubmit 拾取，且只在实时水位远低于指针写入时的 `est`（真实发生过压缩）才交付；从不压缩的会话指针原样保留。
@@ -137,12 +143,12 @@ test/               契约测试（node --test test/*.test.mjs）
 
 ## 计划与展望
 
-- [ ] 逐壳 userConfig 开关（state 目录、模板目录）
 - [x] 派发记账（每条派发的档位、耗时、结果）——派发台账（0.18.0）
-- [ ] 探测矩阵集成（可选，需显式开启）
-- [ ] 完整版路由器：矩阵驱动的壳重绑——六个壳文件永不改名，用户私有的矩阵文件（档位 → 模型 + 思考档位）由 hook 写入壳的 frontmatter；ZCode 每个父轮都重读 agent 定义，轮粒度的模型轮换合法（调用粒度不合法），以此实现可选的「进阶模式」
-- [ ] 无视觉主模型的图像中继——`updatedInput` 通道现在可以把文本主模型的图片 Read 改写成「把路径交给 switchman-vision」的转向
+- [x] 完整版路由器：矩阵驱动的壳重绑（0.19.0）——六个壳文件永不改名；用户私有矩阵文件由 hook 在会话启动与每轮写进 frontmatter，轮粒度重绑搭宿主每轮刷新的便车
+- [x] 无视觉主模型的图像中继（0.19.0）——可选的拒绝附改派，引向 switchman-vision
+- [ ] 探测矩阵集成（可选，需显式开启）——派发台账已在记录真实的每派发用量/时延，矩阵可以直接按观测流量打分，不必主动探测
 - [ ] 编队仪表盘：架在派发台账 + 实时水位上的 MCP Apps 面板（`ui.surfaces`）——平台给插件的唯一自定义 UI 面
+- [ ] 逐壳 userConfig 开关——平台事实（2026-10 于 ZCode 源码验证）：插件 `userConfig` 的值只进 MCP server 配置和设置 UI；hook 进程读不到（hook 变量展开白名单固定：`ZCODE_PLUGIN_ROOT`/`_DATA`/会话 id）。因此开关继续放 `.switchman/settings.json`，等有 MCP 面板再承载。
 
 有想法欢迎开 issue。
 

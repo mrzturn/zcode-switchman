@@ -47,6 +47,7 @@ import { DB_HINT_OFF, loadDbHintMode, detectDbIntent, renderDbHintPromptLine } f
 import { estimateContext, resetContextWarn } from "../src/lib/context.mjs";
 import { resetForeignDeny } from "../src/lib/foreign-agent.mjs";
 import { readPointer, clearPointer, readDocContent, HANDOVER_COMPACT_MARGIN } from "../src/lib/handover.mjs";
+import { applyMatrix } from "../src/lib/matrix.mjs";
 import { resolveProjectRoot, isLangGateOpen } from "../src/lib/project.mjs";
 
 function readStdinPayload() {
@@ -68,6 +69,13 @@ try {
   // and the foreign-agent strict deny (one deny per turn; independent flag)
   try { resetContextWarn(projectDir, sessionId); } catch { /* fail-open */ }
   try { resetForeignDeny(projectDir, sessionId); } catch { /* fail-open */ }
+
+  // [2026-10-30]-[re-apply the matrix on every user turn]-[the host re-reads agent definitions at each parent turn, so a mid-session matrix edit lands on the next message — turn-granular rebinding]
+  // Matrix re-application (opt-in): matrix off → two stats and out; on →
+  // the pins are re-applied silently (idempotent — a no-op unless the
+  // user edited .switchman/shells.json since the last apply). Strictly
+  // silent: any output here would ride every user turn.
+  try { applyMatrix({ projectDir }); } catch { /* fail-open */ }
 
   const lines = [];
 

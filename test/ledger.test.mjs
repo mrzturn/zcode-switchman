@@ -172,3 +172,62 @@ test("hook smoke: non-dispatch tools and unnameable payloads write nothing", () 
   assert.equal(ledgerLines().length, 0, "nothing was recorded");
   fs.rmSync(statePaths.dispatchLedger(), { force: true });
 });
+
+// [2026-10-30]-[pin the parser against the platform's real Agent result shapes]-[the shapes below are copied verbatim from ZCode core/src/tool/handlers/agent.ts output schemas — a CLI update that moves these fields must break a test here, not the ledger silently]
+test("parseDispatchRecord: the platform's real foreground shape (status completed, top-level totals, agentType) parses fully", () => {
+  // verbatim shape from core/src/tool/handlers/agent.ts outputSchema branch 1
+  const real = parseDispatchRecord(
+    { subagent_type: "switchman-hard", description: "deep dive", prompt: "go" },
+    {
+      status: "completed",
+      agentId: "agent_9f2",
+      agentType: "switchman-hard",
+      prompt: "go",
+      content: [{ type: "text", text: "final report" }],
+      totalToolUseCount: 14,
+      totalDurationMs: 63_221,
+      totalTokens: 91_234,
+      usage: { inputTokens: 88_000, outputTokens: 3_234 },
+    },
+    { sessionId: "real-1", project: "/p" },
+  );
+  assert.equal(real.outcome, "ok");
+  assert.equal(real.lane, "hard");
+  assert.equal(real.kind, "shell");
+  assert.equal(real.tokens, 91_234, "top-level totalTokens found");
+  assert.equal(real.toolUses, 14);
+  assert.equal(real.durationMs, 63_221);
+  assert.equal(real.agentId, "agent_9f2");
+  assert.equal(real.background, undefined);
+});
+
+test("parseDispatchRecord: the platform's real async_launched shape (no backgroundTaskId, canReadOutputFile) records a launch", () => {
+  // verbatim shape from core/src/tool/handlers/agent.ts outputSchema branch 2
+  const real = parseDispatchRecord(
+    { subagent_type: "switchman-economy", run_in_background: true, description: "bulk sweep", prompt: "go" },
+    {
+      status: "async_launched",
+      agentId: "agent_bb1",
+      description: "bulk sweep",
+      prompt: "go",
+      outputFile: "/tmp/zcode-task-xyz.output",
+      canReadOutputFile: true,
+    },
+    { sessionId: "real-2" },
+  );
+  assert.equal(real.outcome, "launched", "status async_launched alone arms the launch outcome");
+  assert.equal(real.background, true);
+  assert.equal(real.agentId, "agent_bb1");
+  assert.equal(real.outputFile, "/tmp/zcode-task-xyz.output");
+});
+
+test("parseDispatchRecord: agentType fallback — input without subagent_type still accounts via the result's agentType", () => {
+  const rec = parseDispatchRecord(
+    { prompt: "no agent name in input" },
+    { status: "completed", agentId: "agent_c3", agentType: "Explore", content: [], totalToolUseCount: 2, totalDurationMs: 900 },
+    { sessionId: "real-3" },
+  );
+  assert.equal(rec.lane, "explore");
+  assert.equal(rec.kind, "builtin");
+  assert.equal(rec.agent, "Explore");
+});

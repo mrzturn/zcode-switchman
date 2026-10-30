@@ -51,6 +51,14 @@
  *    the tool result. A capped call emits the rewrite alone — at the
  *    compact tier the cap is the tightened guidance. See
  *    src/lib/readbudget.mjs.
+ * 0.53 image relay (Read only, non-shell sessions, strictly opt-in via
+ *    settings "imageRelay": "on") — a text-only main model's raster-image
+ *    Read is denied with the sanctioned alternative: dispatch
+ *    switchman-vision via DELEGATION_V1 with the path (PostToolUse cannot
+ *    rewrite the image out of a result, so the deny-steer is the
+ *    ZCode-legal relay form). Dormant while dispatch is "off"; the vision
+ *    shell's own image reads pass — shells exit at their gates above. See
+ *    src/lib/imagerelay.mjs.
  * 0.55 db-skill advisory (Bash, non-shell sessions) — when the command
  *    invokes a raw database client (mysql / mysqldump / redis-cli …), inject
  *    a hint-only nudge toward the zcode-switchman:db-query skill via
@@ -101,6 +109,7 @@ import { contextWriteWarning, contextStrictDenial, contextShellAdvisory, estimat
 import { readBudgetRewrite } from "../src/lib/readbudget.mjs";
 import { judgeRoBashCommand, roBashDenyText, shellCapabilityFromRollout } from "../src/lib/robash.mjs";
 import { DB_HINT_OFF, loadDbHintMode, detectRawDbClient, renderDbHintBashLine } from "../src/lib/dbhint.mjs";
+import { imageRelayDenial } from "../src/lib/imagerelay.mjs";
 import {
   FOREIGN_AGENT_NUDGE,
   FOREIGN_AGENT_STRICT,
@@ -217,6 +226,24 @@ try {
   // Non-shell WebFetch/WebSearch: silent fast-pass before any estimation —
   // never guarded; mains pay a string compare and nothing else.
   if (CONTEXT_READ_TOOLS.has(toolLc)) process.exit(0);
+
+  // Gate 0.53: image relay (Read only, non-shell sessions, strictly opt-in
+  // via settings "imageRelay": "on") — a text-only main model's image Read
+  // is denied with the sanctioned alternative: dispatch switchman-vision
+  // via DELEGATION_V1 with the path. Dormant while dispatch is "off"; the
+  // vision shell's own image reads pass (shells exit above). See
+  // src/lib/imagerelay.mjs.
+  if (toolLc === "read") {
+    try {
+      const relayDenial = imageRelayDenial(projectRoot(), payload.tool_input);
+      if (relayDenial) {
+        deny(relayDenial);
+        process.exit(0);
+      }
+    } catch (err) {
+      process.stderr.write(`[zcode-switchman] image-relay fail-open: ${err}\n`);
+    }
+  }
 
   // Gate 0.5: context guard (write-class tools + Read/Glob/Grep, non-shell
   // sessions). Mode decides the response: "fleet" → one-shot advisory

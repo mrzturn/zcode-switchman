@@ -15,6 +15,11 @@
  *   [Sync]      auto-provision report, only when something changed this
  *               session (created/updated shells; user model line
  *               preserved)
+ *   [Matrix]    matrix-driven rebinding (opt-in via settings "matrix":
+ *               "on" + .switchman/shells.json): lane pins applied to the
+ *               shell frontmatter — the one sanctioned writer besides the
+ *               user's hand while on; edits land on the next message.
+ *               Absent when the matrix is off.
  *   [Breaker]   currently down shells, if any
  *   [Workspace] project-local intermediate-artifact root (.switchman/)
  *   [Context]   live context-usage estimate + tier name, read from the CLI
@@ -46,6 +51,7 @@ import { loadRouting, cleanExpired } from "../src/lib/breaker.mjs";
 import { SHELLS } from "../src/lib/shells.mjs";
 import { readPointer, clearPointer, readDocContent } from "../src/lib/handover.mjs";
 import { provisionShells } from "../src/lib/provision.mjs";
+import { applyMatrix, renderMatrixLine } from "../src/lib/matrix.mjs";
 import {
   loadLangConfig, renderLangLine, renderAskDirective, langWaivedFor, detectUiLocale, DEFAULT_LANG_CANDIDATES,
 } from "../src/lib/lang.mjs";
@@ -228,13 +234,22 @@ try {
   const routing = loadRouting();
   try { cleanExpired(routing); } catch { /* fail-open */ }
 
-  // provision first so the banner (Binding counts) reflects post-sync state
+  // provision first so the banner (Binding counts) reflects post-sync state,
+  // then the matrix (opt-in) — the matrix beats template defaults for the
+  // lanes it defines
   const sync = syncLine();
+  let matrix = null;
+  try {
+    matrix = renderMatrixLine(applyMatrix({ projectDir, agentsDir: agentsDir() }));
+  } catch (err) {
+    process.stderr.write(`[zcode-switchman] matrix fail-open: ${err}\n`);
+  }
 
   const lines = [];
   if (sessionId) lines.push(`[Session] ${sessionId}`);
   lines.push(shellLine(), bindingLine());
   if (sync) lines.push(sync);
+  if (matrix) lines.push(matrix);
   lines.push(breakerLine(routing), workspaceLine());
   const ctx = contextLine(sessionId, projectDir);
   if (ctx) lines.push(ctx);

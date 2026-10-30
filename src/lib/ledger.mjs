@@ -84,13 +84,19 @@ function collectFields(value, out, depth = 0) {
  */
 export function parseDispatchRecord(toolInput, toolResponse, { sessionId = "", project = "" } = {}) {
   try {
-    const subagent = toolInput && typeof toolInput === "object" ? toolInput.subagent_type : undefined;
-    const lane = laneOf(subagent);
-    if (!lane) return null;
+    let subagent = toolInput && typeof toolInput === "object" ? toolInput.subagent_type : undefined;
     let response = toolResponse;
     if (typeof response === "string") {
       try { response = JSON.parse(response); } catch { response = { text: response }; }
     }
+    // fallback: the platform's own Agent result carries agentType — use it
+    // when the tool input arrived without a subagent_type
+    if ((subagent === undefined || subagent === null || subagent === "") &&
+        response && typeof response === "object" && typeof response.agentType === "string") {
+      subagent = response.agentType;
+    }
+    const lane = laneOf(subagent);
+    if (!lane) return null;
     const f = collectFields(response, {});
     const launched = f.status === LAUNCHED_STATUS || typeof f.backgroundTaskId === "string";
     const record = {
